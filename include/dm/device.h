@@ -61,6 +61,9 @@ struct driver_info;
  */
 #define DM_FLAG_OS_PREPARE		(1 << 10)
 
+/* DM does not enable the power domain of the device */
+#define DM_FLAG_DEFAULT_PD_EN_OFF	(1 << 11)
+
 /*
  * One or multiple of these flags are passed to device_remove() so that
  * a selective device removal as specified by the remove-stage and the
@@ -403,6 +406,15 @@ const char *dev_get_uclass_name(const struct udevice *dev);
  *	   to probe
  */
 int device_get_child(struct udevice *parent, int index, struct udevice **devp);
+
+/**
+ * device_get_child_count() - Get the available child count of a device
+ *
+ * Returns the number of children to a device.
+ *
+ * @parent:	Parent device to check
+ */
+int device_get_child_count(struct udevice *parent);
 
 /**
  * device_find_child_by_seq() - Find a child device based on a sequence

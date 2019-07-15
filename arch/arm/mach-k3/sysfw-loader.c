@@ -158,6 +158,15 @@ static void k3_sysfw_configure_using_fit(void *fit,
 		hang();
 	}
 
+	/*
+	 * Now that all clocks and PM aspects are setup, invoke a user-
+	 * provided callback function. Usually this callback would be used
+	 * to setup or reconfigure any clocks that may need updated values
+	 * as SYSFW PM init can changes the defaults.
+	 */
+	if (config_pm_done_callback)
+		config_pm_done_callback();
+
 	/* Apply resource management (RM) configuration to SYSFW */
 	ret = board_ops->board_config_rm(ti_sci,
 					 (u64)(u32)cfg_fragment_addr,
@@ -185,14 +194,6 @@ static void k3_sysfw_configure_using_fit(void *fit,
 		       ret);
 		hang();
 	}
-
-	/*
-	 * Now that all clocks and PM aspects are setup, invoke a user-
-	 * provided callback function. Usually this callback would be used
-	 * to setup or re-configure the U-Boot console UART.
-	 */
-	if (config_pm_done_callback)
-		config_pm_done_callback();
 }
 
 #if CONFIG_IS_ENABLED(SPI_LOAD)
@@ -204,6 +205,25 @@ static void *get_sysfw_spi_addr(void)
 
 	ret = uclass_find_device_by_seq(UCLASS_SPI, CONFIG_SF_DEFAULT_BUS,
 					true, &dev);
+	if (ret)
+		return NULL;
+
+	addr = dev_read_addr_index(dev, 1);
+	if (addr == FDT_ADDR_T_NONE)
+		return NULL;
+
+	return (void *)(addr + CONFIG_K3_SYSFW_IMAGE_SPI_OFFS);
+}
+#endif
+
+#if CONFIG_IS_ENABLED(NOR_SUPPORT)
+static void *get_sysfw_hf_addr(void)
+{
+	struct udevice *dev;
+	fdt_addr_t addr;
+	int ret;
+
+	ret = uclass_find_first_device(UCLASS_MTD, &dev);
 	if (ret)
 		return NULL;
 
@@ -272,6 +292,13 @@ void k3_sysfw_loader(void (*config_pm_done_callback)(void))
 		ret = spl_ymodem_load(&spl_image, &bootdev, addr);
 		break;
 #endif
+#if CONFIG_IS_ENABLED(NOR_SUPPORT)
+	case BOOT_DEVICE_HYPERFLASH:
+		addr = get_sysfw_hf_addr();
+		if (!addr)
+			ret = -ENODEV;
+		break;
+#endif
 	default:
 		printf("Loading SYSFW image from device %u not supported!\n",
 		       bootdev.boot_device);
@@ -294,8 +321,16 @@ void k3_sysfw_loader(void (*config_pm_done_callback)(void))
 
 	/* Parse and apply the different SYSFW configuration fragments */
 	k3_sysfw_configure_using_fit(addr, ti_sci, config_pm_done_callback);
+}
 
-	/* Output System Firmware version info */
+/* Output System Firmware version info */
+void k3_sysfw_loader_print_ver(void)
+{
+	struct ti_sci_handle *ti_sci = get_ti_sci_handle();
+
+	if (!ti_sci)
+		return;
+
 	printf("SYSFW ABI: %d.%d (firmware rev 0x%04x '%.*s')\n",
 	       ti_sci->version.abi_major, ti_sci->version.abi_minor,
 	       ti_sci->version.firmware_revision,

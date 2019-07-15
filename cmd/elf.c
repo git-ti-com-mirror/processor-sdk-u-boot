@@ -32,7 +32,7 @@
  * Note if U-Boot is 32-bit, the loader assumes the to segment's
  * physical address and size is within the lower 32-bit address space.
  */
-static unsigned long load_elf64_image_phdr(unsigned long addr)
+unsigned long load_elf64_image_phdr(unsigned long addr)
 {
 	Elf64_Ehdr *ehdr; /* Elf header structure pointer */
 	Elf64_Phdr *phdr; /* Program header structure pointer */
@@ -143,7 +143,7 @@ static unsigned long load_elf64_image_shdr(unsigned long addr)
  * The loader firstly reads the EFI class to see if it's a 64-bit image.
  * If yes, call the ELF64 loader. Otherwise continue with the ELF32 loader.
  */
-static unsigned long load_elf_image_phdr(unsigned long addr)
+unsigned long load_elf_image_phdr(unsigned long addr)
 {
 	Elf32_Ehdr *ehdr; /* Elf header structure pointer */
 	Elf32_Phdr *phdr; /* Program header structure pointer */
@@ -319,6 +319,7 @@ int do_bootelf(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 	return rcode;
 }
 
+#ifndef CONFIG_SPL_BUILD
 /*
  * Interpreter command to boot VxWorks from a memory image.  The image can
  * be either an ELF image or a raw binary.  Will attempt to setup the
@@ -539,3 +540,4 @@ U_BOOT_CMD(
 	"Boot vxWorks from an ELF image",
 	" [address] - load address of vxWorks ELF image."
 );
+#endif

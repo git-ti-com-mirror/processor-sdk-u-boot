@@ -132,7 +132,24 @@
 };
 
 &wkup_i2c0 {
-	power-domains = <&k3_pds 115 TI_SCI_PD_SHARED>;
+	vdd_mpu: tps62363@60 {
+		compatible = "ti,tps62363";
+		reg = <0x60>;
+		regulator-name = "VDD_MPU";
+		regulator-min-microvolt = <500000>;
+		regulator-max-microvolt = <1770000>;
+		regulator-always-on;
+		regulator-boot-on;
+		ti,vsel0-state-high;
+		ti,vsel1-state-high;
+		u-boot,dm-spl;
+	};
+};
+
+&wkup_vtm0 {
+	vdd-supply-3 = <&vdd_mpu>;
+	vdd-supply-4 = <&vdd_mpu>;
+	u-boot,dm-spl;
 };
 
 &wkup_i2c0 {

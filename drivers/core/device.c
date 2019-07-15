@@ -388,7 +388,8 @@ int device_probe(struct udevice *dev)
 	if (dev->parent && device_get_uclass_id(dev) != UCLASS_PINCTRL)
 		pinctrl_select_state(dev, "default");
 
-	if (dev->parent && device_get_uclass_id(dev) != UCLASS_POWER_DOMAIN) {
+	if (dev->parent && device_get_uclass_id(dev) != UCLASS_POWER_DOMAIN &&
+	    !(drv->flags & DM_FLAG_DEFAULT_PD_EN_OFF)) {
 		if (!power_domain_get(dev, &pd))
 			power_domain_on(&pd);
 	}
@@ -556,6 +557,17 @@ int device_get_child(struct udevice *parent, int index, struct udevice **devp)
 	}
 
 	return -ENODEV;
+}
+
+int device_get_child_count(struct udevice *parent)
+{
+	struct udevice *dev;
+	int count = 0;
+
+	list_for_each_entry(dev, &parent->child_head, sibling_node)
+		count++;
+
+	return count;
 }
 
 int device_find_child_by_seq(struct udevice *parent, int seq_or_req_seq,

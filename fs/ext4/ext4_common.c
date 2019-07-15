@@ -190,7 +190,7 @@ uint32_t ext4fs_div_roundup(uint32_t size, uint32_t n)
 	return res;
 }
 
-void put_ext4(uint64_t off, void *buf, uint32_t size)
+void put_ext4(uint64_t off, const void *buf, uint32_t size)
 {
 	uint64_t startblock;
 	uint64_t remainder;
@@ -607,7 +607,7 @@ restart_read:
 		dir->direntlen = cpu_to_le16(fs->blksz - totalbytes);
 
 	dir->namelen = strlen(filename);
-	dir->filetype = FILETYPE_REG;	/* regular file */
+	dir->filetype = file_type;
 	temp_dir = (char *)dir;
 	temp_dir = temp_dir + sizeof(struct ext2_dirent);
 	memcpy(temp_dir, filename, strlen(filename));
