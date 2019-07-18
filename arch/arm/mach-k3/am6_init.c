@@ -86,7 +86,6 @@ static void reinit_mmc_device(int dev)
 
 void k3_init_post_pm_cb(void)
 {
-	preloader_console_init();
 	if (spl_boot_device() == BOOT_DEVICE_MMC1)
 		reinit_mmc_device(0);
 	else if (spl_boot_device() == BOOT_DEVICE_MMC2)
@@ -161,15 +160,18 @@ void board_init_f(ulong dummy)
 	}
 
 	/*
-	 * Load, start up, and configure system controller firmware. Provide
-	 * the U-Boot console init function to the SYSFW post-PM configuration
-	 * callback hook, effectively switching on (or over) the console
-	 * output.
+	 * Load, start up, and configure system controller firmware while
+	 * also populating the SYSFW post-PM configuration callback hook.
 	 */
 	k3_sysfw_loader(k3_init_post_pm_cb);
-#else
+#endif
+
 	/* Prepare console output */
 	preloader_console_init();
+
+#ifdef CONFIG_K3_LOAD_SYSFW
+	/* Output System Firmware version info */
+	k3_sysfw_loader_print_ver();
 #endif
 
 	/* Perform EEPROM-based board detection */
@@ -327,11 +329,5 @@ void release_resources_for_core_shutdown(void)
 			panic("Failed sending core %u shutdown message (%d)\n",
 			      id, ret);
 	}
-}
-#endif
-
-#ifndef CONFIG_SYSRESET
-void reset_cpu(ulong ignored)
-{
 }
 #endif

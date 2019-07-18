@@ -13,9 +13,13 @@
 #include <regmap.h>
 #include <sdhci.h>
 #include "mmc_private.h"
+#if defined(CONFIG_SPL_BUILD) && defined(CONFIG_ARCH_K3)
+#include <spl.h>
+#endif
 
 /* CTL_CFG Registers */
 #define CTL_CFG_2		0x14
+#define K3_ARASAN_SDHCI_MIN_FREQ	0
 
 #define SLOTTYPE_MASK		GENMASK(31, 30)
 #define SLOTTYPE_EMBEDDED	BIT(30)
@@ -42,6 +46,8 @@
 #define SEL50_MASK		BIT(SEL50_SHIFT)
 #define SEL100_SHIFT		9
 #define SEL100_MASK		BIT(SEL100_SHIFT)
+#define FREQSEL_SHIFT		8
+#define FREQSEL_MASK		GENMASK(10, 8)
 #define DLL_TRIM_ICP_SHIFT	4
 #define DLL_TRIM_ICP_MASK	GENMASK(7, 4)
 #define DR_TY_SHIFT		20
@@ -75,6 +81,10 @@ struct am654_sdhci_plat {
 	u32 otap_del_sel;
 	u32 trm_icp;
 	u32 drv_strength;
+	u32 flags;
+#define DLL_PRESENT	(1 << 0)
+#define IOMUX_PRESENT	(1 << 1)
+#define FREQSEL_2_BIT	(1 << 2)
 	bool dll_on;
 };
 
@@ -167,7 +177,7 @@ static int am654_sdhci_set_ios_post(struct sdhci_host *host)
 	struct udevice *dev = host->mmc->dev;
 	struct am654_sdhci_plat *plat = dev_get_platdata(dev);
 	unsigned int speed = host->mmc->clock;
-	int sel50, sel100;
+	int sel50, sel100, freqsel;
 	u32 mask, val;
 	int ret;
 
@@ -191,47 +201,45 @@ static int am654_sdhci_set_ios_post(struct sdhci_host *host)
 		mask = OTAPDLYENA_MASK | OTAPDLYSEL_MASK;
 		val = (1 << OTAPDLYENA_SHIFT) |
 		      (plat->otap_del_sel << OTAPDLYSEL_SHIFT);
-		regmap_update_bits(plat->base, PHY_CTRL4,
-				   mask, val);
-		switch (speed) {
-		case 200000000:
-			sel50 = 0;
-			sel100 = 0;
-			break;
-		case 100000000:
-			sel50 = 0;
-			sel100 = 1;
-			break;
-		default:
-			sel50 = 1;
-			sel100 = 0;
+		regmap_update_bits(plat->base, PHY_CTRL4, mask, val);
+		if (plat->flags & FREQSEL_2_BIT) {
+			switch (speed) {
+			case 200000000:
+				sel50 = 0;
+				sel100 = 0;
+				break;
+			case 100000000:
+				sel50 = 0;
+				sel100 = 1;
+				break;
+			default:
+				sel50 = 1;
+				sel100 = 0;
+			}
+
+			/* Configure PHY DLL frequency */
+			mask = SEL50_MASK | SEL100_MASK;
+			val = (sel50 << SEL50_SHIFT) | (sel100 << SEL100_SHIFT);
+			regmap_update_bits(plat->base, PHY_CTRL5, mask, val);
+		} else {
+			switch (speed) {
+			case 200000000:
+				freqsel = 0x0;
+			default:
+				freqsel = 0x4;
+			}
+			regmap_update_bits(plat->base, PHY_CTRL5, FREQSEL_MASK,
+					   freqsel << FREQSEL_SHIFT);
 		}
-
-		/* Configure PHY DLL frequency */
-		mask = SEL50_MASK | SEL100_MASK;
-		val = (sel50 << SEL50_SHIFT) | (sel100 << SEL100_SHIFT);
-		regmap_update_bits(plat->base, PHY_CTRL5,
-				   mask, val);
-		/* Configure DLL TRIM */
-		mask = DLL_TRIM_ICP_MASK;
-		val = plat->trm_icp << DLL_TRIM_ICP_SHIFT;
-
-		/* Configure DLL driver strength */
-		mask |= DR_TY_MASK;
-		val |= plat->drv_strength << DR_TY_SHIFT;
-		regmap_update_bits(plat->base, PHY_CTRL1,
-				   mask, val);
 		/* Enable DLL */
-		regmap_update_bits(plat->base, PHY_CTRL1,
-				   ENDLL_MASK, 0x1 << ENDLL_SHIFT);
+		regmap_update_bits(plat->base, PHY_CTRL1, ENDLL_MASK,
+				   0x1 << ENDLL_SHIFT);
 		/*
 		 * Poll for DLL ready. Use a one second timeout.
 		 * Works in all experiments done so far
 		 */
-		ret = regmap_read_poll_timeout(plat->base,
-					 PHY_STAT1, val,
-					 val & DLLRDY_MASK,
-					 1000, 1000000);
+		ret = regmap_read_poll_timeout(plat->base, PHY_STAT1, val,
+					 val & DLLRDY_MASK, 1000, 1000000);
 		if (ret)
 			return ret;
 
@@ -247,6 +255,26 @@ const struct sdhci_ops am654_sdhci_ops = {
 	.platform_execute_tuning = &am654_sdhci_execute_tuning,
 };
 
+static int j721e_4bit_sdhci_set_ios_post(struct sdhci_host *host)
+{
+	struct udevice *dev = host->mmc->dev;
+	struct am654_sdhci_plat *plat = dev_get_platdata(dev);
+	u32 mask, val;
+
+	mask = OTAPDLYENA_MASK | OTAPDLYSEL_MASK;
+	val = (1 << OTAPDLYENA_SHIFT) |
+	      (plat->otap_del_sel << OTAPDLYSEL_SHIFT);
+	regmap_update_bits(plat->base, PHY_CTRL4, mask, val);
+
+	return 0;
+}
+
+const struct sdhci_ops j721e_4bit_sdhci_ops = {
+	.set_ios_post		= &j721e_4bit_sdhci_set_ios_post,
+	.set_control_reg	= &am654_sdhci_set_control_reg,
+	.platform_execute_tuning = &am654_sdhci_execute_tuning,
+};
+
 int am654_sdhci_init(struct am654_sdhci_plat *plat)
 {
 	u32 ctl_cfg_2 = 0;
@@ -257,30 +285,43 @@ int am654_sdhci_init(struct am654_sdhci_plat *plat)
 	mask = OTAPDLYENA_MASK | OTAPDLYSEL_MASK;
 	regmap_update_bits(plat->base, PHY_CTRL4, mask, 0x0);
 
-	regmap_read(plat->base, PHY_STAT1, &val);
-	if (~val & CALDONE_MASK) {
-		/* Calibrate IO lines */
-		regmap_update_bits(plat->base, PHY_CTRL1,
-				   PDB_MASK, PDB_MASK);
-		ret = regmap_read_poll_timeout(plat->base, PHY_STAT1,
-					       val, val & CALDONE_MASK,
-					       1, 20);
-		if (ret)
-			return ret;
+	if (plat->flags & DLL_PRESENT) {
+		regmap_read(plat->base, PHY_STAT1, &val);
+		if (~val & CALDONE_MASK) {
+			/* Calibrate IO lines */
+			regmap_update_bits(plat->base, PHY_CTRL1, PDB_MASK,
+					   PDB_MASK);
+			ret = regmap_read_poll_timeout(plat->base, PHY_STAT1,
+						       val, val & CALDONE_MASK,
+						       1, 20);
+			if (ret)
+				return ret;
+		}
+
+		/* Configure DLL TRIM */
+		mask = DLL_TRIM_ICP_MASK;
+		val = plat->trm_icp << DLL_TRIM_ICP_SHIFT;
+
+		/* Configure DLL driver strength */
+		mask |= DR_TY_MASK;
+		val |= plat->drv_strength << DR_TY_SHIFT;
+		regmap_update_bits(plat->base, PHY_CTRL1, mask, val);
 	}
 
 	/* Enable pins by setting IO mux to 0 */
-	regmap_update_bits(plat->base, PHY_CTRL1, IOMUX_ENABLE_MASK, 0);
+	if (plat->flags & IOMUX_PRESENT)
+		regmap_update_bits(plat->base, PHY_CTRL1, IOMUX_ENABLE_MASK, 0);
 
 	/* Set slot type based on SD or eMMC */
 	if (plat->non_removable)
 		ctl_cfg_2 = SLOTTYPE_EMBEDDED;
 
-	regmap_update_bits(plat->base, CTL_CFG_2, SLOTTYPE_MASK,
-			   ctl_cfg_2);
+	regmap_update_bits(plat->base, CTL_CFG_2, SLOTTYPE_MASK, ctl_cfg_2);
 
 	return 0;
 }
+
+#define MAX_SDCD_DEBOUNCE_TIME 2000
 
 static int am654_sdhci_probe(struct udevice *dev)
 {
@@ -290,8 +331,37 @@ static int am654_sdhci_probe(struct udevice *dev)
 	struct mmc_config *cfg = &plat->cfg;
 	struct power_domain sdhci_pwrdmn;
 	struct clk clk;
+	unsigned long start;
 	unsigned long clock;
-	int ret;
+	int val, ret;
+
+#if defined(CONFIG_SPL_BUILD) && defined(CONFIG_ARCH_K3)
+	u32 boot_device;
+	int mmc_dev_index;
+
+	boot_device = spl_boot_device();
+
+	/* Get index of MMC boot device */
+	mmc_dev_index = spl_mmc_get_device_index(boot_device);
+	if (mmc_dev_index < 0)
+		return mmc_dev_index;
+
+	/*
+	 * Only perform SDHCI controller probe for boot device. Note that while
+	 * we would like to use DTS aliases to explicitly define the SDHCI
+	 * controller sequence numbers doing so is currently not well supported
+	 * within U-Boot for our device use case where the sdhci0 and sdhci1
+	 * controllers are declared in the DTS file using the *exact* same name,
+	 * causing issues during dev_read_alias_seq() processing. Hence for now
+	 * we simply rely on the order in which the controllers are declared in
+	 * the DTS file establishing the device sequence numbers.
+	 */
+	if (dev->seq != mmc_dev_index) {
+		debug("%s: skipping probe of non-boot MMC device %d\n",
+		      __func__, dev->seq);
+		return 0;
+	}
+#endif
 
 	ret = power_domain_get_by_index(dev, &sdhci_pwrdmn, 0);
 	if (!ret) {
@@ -305,7 +375,7 @@ static int am654_sdhci_probe(struct udevice *dev)
 		return ret;
 	}
 
-	ret = clk_get_by_index(dev, 0, &clk);
+	ret = clk_get_by_name(dev, "clk_xin", &clk);
 	if (ret) {
 		dev_err(dev, "failed to get clock\n");
 		return ret;
@@ -324,13 +394,27 @@ static int am654_sdhci_probe(struct udevice *dev)
 			      AM654_SDHCI_MIN_FREQ);
 	if (ret)
 		return ret;
-	host->ops = &am654_sdhci_ops;
+	host->ops = (struct sdhci_ops *)dev_get_driver_data(dev);
 	host->mmc->priv = host;
 	upriv->mmc = host->mmc;
 
 	regmap_init_mem_index(dev_ofnode(dev), &plat->base, 1);
 
 	am654_sdhci_init(plat);
+
+	/*
+	 * The controller takes about 1 second to debounce the card detect line
+	 * and doesn't let us power on until that time is up. Instead of waiting
+	 * for 1 second at every stage, poll on the CARD_PRESENT bit upto a
+	 * maximum of 2 seconds to be safe..
+	 */
+	start = get_timer(0);
+	do {
+		if (get_timer(start) > MAX_SDCD_DEBOUNCE_TIME)
+			return -ENOMEDIUM;
+
+		val = mmc_getcd(host->mmc);
+	} while (!val);
 
 	return sdhci_probe(dev);
 }
@@ -347,37 +431,51 @@ static int am654_sdhci_ofdata_to_platdata(struct udevice *dev)
 	host->ioaddr = (void *)dev_read_addr(dev);
 	plat->non_removable = dev_read_bool(dev, "non-removable");
 
-	ret = dev_read_u32(dev, "ti,trm-icp", &plat->trm_icp);
-	if (ret)
-		return ret;
+	if (device_is_compatible(dev, "ti,am654-sdhci-5.1") ||
+	    device_is_compatible(dev, "ti,j721e-sdhci-8bit"))
+		plat->flags |= DLL_PRESENT;
+
+	if (device_is_compatible(dev, "ti,am654-sdhci-5.1") ||
+	    device_is_compatible(dev, "ti,j721e-sdhci-4bit"))
+		plat->flags |= IOMUX_PRESENT;
+
+	if (device_is_compatible(dev, "ti,am654-sdhci-5.1"))
+		plat->flags |= FREQSEL_2_BIT;
 
 	ret = dev_read_u32(dev, "ti,otap-del-sel", &plat->otap_del_sel);
 	if (ret)
 		return ret;
 
-	ret = dev_read_u32(dev, "ti,driver-strength-ohm", &drv_strength);
-	if (ret)
-		return ret;
+	if (plat->flags & DLL_PRESENT) {
+		ret = dev_read_u32(dev, "ti,trm-icp", &plat->trm_icp);
+		if (ret)
+			return ret;
 
-	switch (drv_strength) {
-	case 50:
-		plat->drv_strength = DRIVER_STRENGTH_50_OHM;
-		break;
-	case 33:
-		plat->drv_strength = DRIVER_STRENGTH_33_OHM;
-		break;
-	case 66:
-		plat->drv_strength = DRIVER_STRENGTH_66_OHM;
-		break;
-	case 100:
-		plat->drv_strength = DRIVER_STRENGTH_100_OHM;
-		break;
-	case 40:
-		plat->drv_strength = DRIVER_STRENGTH_40_OHM;
-		break;
-	default:
-		dev_err(dev, "Invalid driver strength\n");
-		return -EINVAL;
+		ret = dev_read_u32(dev, "ti,driver-strength-ohm",
+				   &drv_strength);
+		if (ret)
+			return ret;
+
+		switch (drv_strength) {
+		case 50:
+			plat->drv_strength = DRIVER_STRENGTH_50_OHM;
+			break;
+		case 33:
+			plat->drv_strength = DRIVER_STRENGTH_33_OHM;
+			break;
+		case 66:
+			plat->drv_strength = DRIVER_STRENGTH_66_OHM;
+			break;
+		case 100:
+			plat->drv_strength = DRIVER_STRENGTH_100_OHM;
+			break;
+		case 40:
+			plat->drv_strength = DRIVER_STRENGTH_40_OHM;
+			break;
+		default:
+			dev_err(dev, "Invalid driver strength\n");
+			return -EINVAL;
+		}
 	}
 
 	ret = mmc_of_parse(dev, cfg);
@@ -395,7 +493,18 @@ static int am654_sdhci_bind(struct udevice *dev)
 }
 
 static const struct udevice_id am654_sdhci_ids[] = {
-	{ .compatible = "ti,am654-sdhci-5.1" },
+	{
+		.compatible = "ti,am654-sdhci-5.1",
+		.data = (ulong)&am654_sdhci_ops,
+	},
+	{
+		.compatible = "ti,j721e-sdhci-8bit",
+		.data = (ulong)&am654_sdhci_ops,
+	},
+	{
+		.compatible = "ti,j721e-sdhci-4bit",
+		.data = (ulong)&j721e_4bit_sdhci_ops,
+	},
 	{ }
 };
 
