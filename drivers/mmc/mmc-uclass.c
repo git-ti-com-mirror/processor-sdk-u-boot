@@ -47,20 +47,6 @@ int mmc_set_ios(struct mmc *mmc)
 	return dm_mmc_set_ios(mmc->dev);
 }
 
-void dm_mmc_send_init_stream(struct udevice *dev)
-{
-	struct dm_mmc_ops *ops = mmc_get_ops(dev);
-
-	if (ops->send_init_stream)
-		ops->send_init_stream(dev);
-}
-
-void mmc_send_init_stream(struct mmc *mmc)
-{
-	dm_mmc_send_init_stream(mmc->dev);
-}
-
-#if CONFIG_IS_ENABLED(MMC_UHS_SUPPORT)
 int dm_mmc_wait_dat0(struct udevice *dev, int state, int timeout)
 {
 	struct dm_mmc_ops *ops = mmc_get_ops(dev);
@@ -74,7 +60,6 @@ int mmc_wait_dat0(struct mmc *mmc, int state, int timeout)
 {
 	return dm_mmc_wait_dat0(mmc->dev, state, timeout);
 }
-#endif
 
 int dm_mmc_get_wp(struct udevice *dev)
 {
