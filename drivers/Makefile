@@ -43,7 +43,7 @@ obj-$(CONFIG_SPL_DM_RESET) += reset/
 obj-$(CONFIG_SPL_MTD_SUPPORT) += mtd/
 obj-$(CONFIG_SPL_ONENAND_SUPPORT) += mtd/onenand/
 obj-$(CONFIG_SPL_UBI) += mtd/ubispl/
-obj-$(CONFIG_SPL_DMA_SUPPORT) += dma/
+obj-$(CONFIG_SPL_DMA) += dma/
 obj-$(CONFIG_SPL_ETH_SUPPORT) += net/
 obj-$(CONFIG_SPL_ETH_SUPPORT) += net/phy/
 obj-$(CONFIG_SPL_USB_ETHER) += net/phy/
@@ -105,7 +105,6 @@ obj-y += reset/
 obj-y += input/
 # SOC specific infrastructure drivers.
 obj-y += smem/
-obj-y += soc/
 obj-y += thermal/
 obj-$(CONFIG_TEE) += tee/
 obj-y += axi/
@@ -115,3 +114,5 @@ obj-$(CONFIG_W1_EEPROM) += w1-eeprom/
 obj-$(CONFIG_MACH_PIC32) += ddr/microchip/
 obj-$(CONFIG_DM_HWSPINLOCK) += hwspinlock/
 endif
+
+obj-y += soc/

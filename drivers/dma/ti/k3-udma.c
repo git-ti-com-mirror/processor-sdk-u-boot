@@ -98,7 +98,6 @@ struct udma_dev {
 	const struct ti_sci_rm_psil_ops *tisci_psil_ops;
 	u32  tisci_dev_id;
 	u32  tisci_navss_dev_id;
-	bool is_coherent;
 };
 
 struct udma_chan {
@@ -271,11 +270,6 @@ static inline bool udma_is_chan_running(struct udma_chan *uc)
 		return true;
 
 	return false;
-}
-
-static int udma_is_coherent(struct udma_chan *uc)
-{
-	return uc->ud->is_coherent;
 }
 
 static int udma_pop_from_ring(struct udma_chan *uc, dma_addr_t *addr)
@@ -764,7 +758,7 @@ static int udma_alloc_tx_resources(struct udma_chan *uc)
 	memset(&ring_cfg, 0, sizeof(ring_cfg));
 	ring_cfg.size = 16;
 	ring_cfg.elm_size = K3_NAV_RINGACC_RING_ELSIZE_8;
-	ring_cfg.mode = K3_NAV_RINGACC_RING_MODE_MESSAGE;
+	ring_cfg.mode = K3_NAV_RINGACC_RING_MODE_RING;
 
 	ret = k3_nav_ringacc_ring_cfg(uc->tchan->t_ring, &ring_cfg);
 	ret |= k3_nav_ringacc_ring_cfg(uc->tchan->tc_ring, &ring_cfg);
@@ -841,7 +835,7 @@ static int udma_alloc_rx_resources(struct udma_chan *uc)
 	memset(&ring_cfg, 0, sizeof(ring_cfg));
 	ring_cfg.size = 16;
 	ring_cfg.elm_size = K3_NAV_RINGACC_RING_ELSIZE_8;
-	ring_cfg.mode = K3_NAV_RINGACC_RING_MODE_MESSAGE;
+	ring_cfg.mode = K3_NAV_RINGACC_RING_MODE_RING;
 
 	ret = k3_nav_ringacc_ring_cfg(uc->rchan->fd_ring, &ring_cfg);
 	ret |= k3_nav_ringacc_ring_cfg(uc->rchan->r_ring, &ring_cfg);
@@ -1310,8 +1304,6 @@ static int udma_probe(struct udevice *dev)
 		ud->tisci_psil_ops = &ud->tisci->ops.rm_psil_ops;
 	}
 
-	ud->is_coherent = dev_read_bool(dev, "dma-coherent");
-
 	ud->dev = dev;
 	ud->ch_count = udma_setup_resources(ud);
 	if (ud->ch_count <= 0)
@@ -1373,6 +1365,14 @@ static int udma_probe(struct udevice *dev)
 	uc_priv->supported = DMA_SUPPORTS_MEM_TO_MEM | DMA_SUPPORTS_MEM_TO_DEV;
 
 	return ret;
+}
+
+static int udma_push_to_ring(struct k3_nav_ring *ring, void *elem)
+{
+	u64 addr = 0;
+
+	memcpy(&addr, &elem, sizeof(elem));
+	return k3_nav_ringacc_ring_push(ring, &addr);
 }
 
 static int *udma_prep_dma_memcpy(struct udma_chan *uc, dma_addr_t dest,
@@ -1462,13 +1462,11 @@ static int *udma_prep_dma_memcpy(struct udma_chan *uc, dma_addr_t dest,
 
 	cppi5_tr_csf_set(&tr_req[num_tr - 1].flags, CPPI5_TR_CSF_EOP);
 
-	if (!udma_is_coherent(uc)) {
-		flush_dcache_range((u64)tr_desc,
-				   ALIGN((u64)tr_desc + desc_size,
-					 ARCH_DMA_MINALIGN));
-	}
+	flush_dcache_range((unsigned long)tr_desc,
+			   ALIGN((unsigned long)tr_desc + desc_size,
+				 ARCH_DMA_MINALIGN));
 
-	k3_nav_ringacc_ring_push(uc->tchan->t_ring, &tr_desc);
+	udma_push_to_ring(uc->tchan->t_ring, tr_desc);
 
 	return 0;
 }
@@ -1634,16 +1632,14 @@ static int udma_send(struct dma *dma, void *src, size_t len, void *metadata)
 	cppi5_hdesc_set_pkttype(desc_tx, packet_data.pkt_type);
 	cppi5_desc_set_tags_ids(&desc_tx->hdr, 0, packet_data.dest_tag);
 
-	if (!udma_is_coherent(uc)) {
-		flush_dcache_range((u64)dma_src,
-				   ALIGN((u64)dma_src + len,
-					 ARCH_DMA_MINALIGN));
-		flush_dcache_range((u64)desc_tx,
-				   ALIGN((u64)desc_tx + uc->hdesc_size,
-					 ARCH_DMA_MINALIGN));
-	}
+	flush_dcache_range((unsigned long)dma_src,
+			   ALIGN((unsigned long)dma_src + len,
+				 ARCH_DMA_MINALIGN));
+	flush_dcache_range((unsigned long)desc_tx,
+			   ALIGN((unsigned long)desc_tx + uc->hdesc_size,
+				 ARCH_DMA_MINALIGN));
 
-	ret = k3_nav_ringacc_ring_push(uc->tchan->t_ring, &uc->desc_tx);
+	ret = udma_push_to_ring(uc->tchan->t_ring, uc->desc_tx);
 	if (ret) {
 		dev_err(dma->dev, "TX dma push fail ch_id %lu %d\n",
 			dma->id, ret);
@@ -1685,19 +1681,15 @@ static int udma_receive(struct dma *dma, void **dst, void *metadata)
 	}
 
 	/* invalidate cache data */
-	if (!udma_is_coherent(uc)) {
-		invalidate_dcache_range((ulong)desc_rx,
-					(ulong)(desc_rx + uc->hdesc_size));
-	}
+	invalidate_dcache_range((ulong)desc_rx,
+				(ulong)(desc_rx + uc->hdesc_size));
 
 	cppi5_hdesc_get_obuf(desc_rx, &buf_dma, &buf_dma_len);
 	pkt_len = cppi5_hdesc_get_pktlen(desc_rx);
 
 	/* invalidate cache data */
-	if (!udma_is_coherent(uc)) {
-		invalidate_dcache_range((ulong)buf_dma,
-					(ulong)(buf_dma + buf_dma_len));
-	}
+	invalidate_dcache_range((ulong)buf_dma,
+				(ulong)(buf_dma + buf_dma_len));
 
 	cppi5_desc_get_tags_ids(&desc_rx->hdr, &port_id, NULL);
 
@@ -1802,13 +1794,11 @@ int udma_prepare_rcv_buf(struct dma *dma, void *dst, size_t size)
 	cppi5_hdesc_set_pktlen(desc_rx, size);
 	cppi5_hdesc_attach_buf(desc_rx, dma_dst, size, dma_dst, size);
 
-	if (!udma_is_coherent(uc)) {
-		flush_dcache_range((u64)desc_rx,
-				   ALIGN((u64)desc_rx + uc->hdesc_size,
-					 ARCH_DMA_MINALIGN));
-	}
+	flush_dcache_range((unsigned long)desc_rx,
+			   ALIGN((unsigned long)desc_rx + uc->hdesc_size,
+				 ARCH_DMA_MINALIGN));
 
-	k3_nav_ringacc_ring_push(uc->rchan->fd_ring, &desc_rx);
+	udma_push_to_ring(uc->rchan->fd_ring, desc_rx);
 
 	uc->num_rx_bufs++;
 	uc->desc_rx_cur++;
