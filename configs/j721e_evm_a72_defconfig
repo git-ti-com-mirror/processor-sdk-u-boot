@@ -19,7 +19,9 @@ CONFIG_NR_DRAM_BANKS=2
 # CONFIG_SYS_MALLOC_CLEAR_ON_INIT is not set
 CONFIG_SPL_LOAD_FIT=y
 CONFIG_OF_BOARD_SETUP=y
-CONFIG_BOOTCOMMAND="run findfdt; run envboot; run init_${boot}; run boot_rprocs; run get_kern_${boot}; run get_fdt_${boot}; run get_overlay_${boot}; run run_kern"
+CONFIG_USE_BOOTARGS=y
+CONFIG_BOOTARGS="androidboot.serialno=${serial#} console=ttyS2,115200 androidboot.console=ttyS2 androidboot.hardware=j721eboard"
+CONFIG_BOOTCOMMAND="run findfdt; setenv mmcdev 1; run envboot; run check_android; if test $is_android -eq 1; then run emmc_android_boot; fi; run init_${boot}; run boot_rprocs; run get_kern_${boot}; run get_fdt_${boot}; run get_overlay_${boot}; run run_kern"
 # CONFIG_DISPLAY_CPUINFO is not set
 CONFIG_SPL_BOARD_INIT=y
 CONFIG_SPL_SYS_MALLOC_SIMPLE=y
@@ -74,6 +76,12 @@ CONFIG_SPL_CLK=y
 CONFIG_CLK_TI_SCI=y
 CONFIG_DMA_CHANNELS=y
 CONFIG_TI_K3_NAVSS_UDMA=y
+CONFIG_UDP_FUNCTION_FASTBOOT=y
+CONFIG_FASTBOOT_BUF_ADDR=0x82000000
+CONFIG_FASTBOOT_BUF_SIZE=0x2F000000
+CONFIG_FASTBOOT_FLASH=y
+CONFIG_FASTBOOT_FLASH_MMC_DEV=0
+CONFIG_FASTBOOT_CMD_OEM_FORMAT=y
 CONFIG_TI_SCI_PROTOCOL=y
 CONFIG_DM_GPIO=y
 CONFIG_DA8XX_GPIO=y
