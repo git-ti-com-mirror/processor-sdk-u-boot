@@ -41,6 +41,13 @@ static int spi_nor_read_write_reg(struct spi_nor *nor, struct spi_mem_op
 		op->data.buf.in = buf;
 	else
 		op->data.buf.out = buf;
+
+	/* get transfer protocols. */
+	op->cmd.buswidth = spi_nor_get_protocol_inst_nbits(nor->reg_proto);
+	op->addr.buswidth = spi_nor_get_protocol_addr_nbits(nor->reg_proto);
+	op->data.buswidth = spi_nor_get_protocol_data_nbits(nor->reg_proto);
+	op->cmd.dtr = spi_nor_protocol_is_dtr(nor->reg_proto);
+
 	return spi_mem_exec_op(nor->spi, op);
 }
 
@@ -86,6 +93,7 @@ static ssize_t spi_nor_read_data(struct spi_nor *nor, loff_t from, size_t len,
 	op.addr.buswidth = spi_nor_get_protocol_addr_nbits(nor->read_proto);
 	op.dummy.buswidth = op.addr.buswidth;
 	op.data.buswidth = spi_nor_get_protocol_data_nbits(nor->read_proto);
+	op.cmd.dtr = spi_nor_protocol_is_dtr(nor->read_proto);
 
 	/* convert the dummy cycles to the number of bytes */
 	op.dummy.nbytes = (nor->read_dummy * op.dummy.buswidth) / 8;
@@ -123,6 +131,7 @@ static ssize_t spi_nor_write_data(struct spi_nor *nor, loff_t to, size_t len,
 	op.cmd.buswidth = spi_nor_get_protocol_inst_nbits(nor->write_proto);
 	op.addr.buswidth = spi_nor_get_protocol_addr_nbits(nor->write_proto);
 	op.data.buswidth = spi_nor_get_protocol_data_nbits(nor->write_proto);
+	op.cmd.dtr = spi_nor_protocol_is_dtr(nor->write_proto);
 
 	if (nor->program_opcode == SPINOR_OP_AAI_WP && nor->sst_write_second)
 		op.addr.nbytes = 0;
@@ -143,6 +152,28 @@ static ssize_t spi_nor_write_data(struct spi_nor *nor, loff_t to, size_t len,
 	}
 
 	return len;
+}
+
+static int spi_nor_select_mode(struct spi_nor *nor, enum spi_nor_mode mode)
+{
+	int ret;
+
+	if (nor->mode == mode)
+		return 0;
+
+	if (!nor->change_mode)
+		return -ENOTSUPP;
+
+	ret = nor->change_mode(nor, mode);
+	if (ret)
+		return ret;
+
+	if (nor->adjust_op)
+		nor->adjust_op(nor, mode);
+
+	nor->mode = mode;
+
+	return ret;
 }
 
 /*
@@ -264,6 +295,7 @@ static u8 spi_nor_convert_3to4_read(u8 opcode)
 		{ SPINOR_OP_READ_1_1_1_DTR,	SPINOR_OP_READ_1_1_1_DTR_4B },
 		{ SPINOR_OP_READ_1_2_2_DTR,	SPINOR_OP_READ_1_2_2_DTR_4B },
 		{ SPINOR_OP_READ_1_4_4_DTR,	SPINOR_OP_READ_1_4_4_DTR_4B },
+		{ SPINOR_OP_READ_8_8_8_DTR,	SPINOR_OP_READ_8_8_8_DTR_4B },
 	};
 
 	return spi_nor_convert_opcode(opcode, spi_nor_3to4_read,
@@ -916,6 +948,8 @@ static int spi_nor_read(struct mtd_info *mtd, loff_t from, size_t len,
 
 	dev_dbg(nor->dev, "from 0x%08x, len %zd\n", (u32)from, len);
 
+	spi_nor_select_mode(nor, nor->preferred_mode);
+
 	while (len) {
 		loff_t addr = from;
 		size_t read_len = len;
@@ -954,6 +988,8 @@ read_err:
 #ifdef CONFIG_SPI_FLASH_BAR
 	ret = clean_bar(nor);
 #endif
+	spi_nor_select_mode(nor, SPI_NOR_MODE_SPI);
+
 	return ret;
 }
 
@@ -1309,6 +1345,7 @@ enum spi_nor_read_command_index {
 	SNOR_CMD_READ_1_8_8,
 	SNOR_CMD_READ_8_8_8,
 	SNOR_CMD_READ_1_8_8_DTR,
+	SNOR_CMD_READ_8_8_8_DTR,
 
 	SNOR_CMD_READ_MAX
 };
@@ -1393,6 +1430,8 @@ static int spi_nor_read_sfdp(struct spi_nor *nor, u32 addr,
 	nor->read_opcode = SPINOR_OP_RDSFDP;
 	nor->addr_width = 3;
 	nor->read_dummy = 8;
+
+	nor->read_proto = SNOR_PROTO_1_1_1;
 
 	while (len) {
 		ret = nor->read(nor, addr, len, (u8 *)buf);
@@ -1921,11 +1960,73 @@ exit:
 	kfree(param_headers);
 	return err;
 }
+
+static void spi_nor_calibration_tmpl(struct spi_nor *nor, struct spi_mem_op *op)
+{
+	/* get transfer protocols. */
+	op->cmd.opcode = SPINOR_OP_RDSFDP;
+	op->cmd.buswidth = spi_nor_get_protocol_inst_nbits(nor->read_proto);
+	op->addr.val = 0;
+	op->addr.nbytes = nor->addr_width;
+	op->addr.buswidth = spi_nor_get_protocol_addr_nbits(nor->read_proto);
+	op->dummy.buswidth = op->addr.buswidth;
+	op->data.buswidth = spi_nor_get_protocol_data_nbits(nor->read_proto);
+
+	/* convert the dummy cycles to the number of bytes */
+	op->dummy.nbytes = (nor->read_dummy * op->dummy.buswidth) / 8;
+}
+
+/* Calibrate controller for given mode */
+static int spi_nor_calibrate(struct spi_nor *nor, enum spi_nor_mode mode)
+{
+	/* Use first 16 bytes of SFDP Header as calibration data */
+	int size = sizeof(struct sfdp_parameter_header) << 1;
+	struct udevice *bus = nor->spi->dev->parent;
+	struct dm_spi_ops *ops = spi_get_ops(bus);
+	u8 addr_width = nor->addr_width;
+	struct spi_mem_op op;
+	u8 *calibration_data;
+	int ret;
+
+	if (!ops || !ops->mem_ops || !ops->mem_ops->calibrate)
+		return 0;
+
+	calibration_data = kmalloc(size, GFP_KERNEL);
+	if (!calibration_data)
+		return -ENOMEM;
+
+	ret = spi_nor_read_sfdp(nor, 0, size, calibration_data);
+	if (ret)
+		goto free_mem;
+
+	nor->preferred_mode = mode;
+	spi_nor_select_mode(nor, nor->preferred_mode);
+
+	nor->addr_width = 4;
+	nor->read_opcode = SPINOR_OP_RDSFDP;
+	nor->read_dummy = 8;
+	spi_nor_calibration_tmpl(nor, &op);
+
+	ret = ops->mem_ops->calibrate(nor->spi, &op, calibration_data, size);
+
+	spi_nor_select_mode(nor, SPI_NOR_MODE_SPI);
+	nor->addr_width = addr_width;
+free_mem:
+	kfree(calibration_data);
+
+	return ret;
+}
+
 #else
 static int spi_nor_parse_sfdp(struct spi_nor *nor,
 			      struct spi_nor_flash_parameter *params)
 {
 	return -EINVAL;
+}
+
+static int spi_nor_calibrate(struct spi_nor *nor, enum spi_nor_mode mode)
+{
+	return 0;
 }
 #endif /* SPI_FLASH_SFDP_SUPPORT */
 
@@ -1967,11 +2068,11 @@ static int spi_nor_init_params(struct spi_nor *nor,
 					  SNOR_PROTO_1_1_4);
 	}
 
-	if (info->flags & SPI_NOR_OCTAL_READ) {
-		params->hwcaps.mask |= SNOR_HWCAPS_READ_1_1_8;
-		spi_nor_set_read_settings(&params->reads[SNOR_CMD_READ_1_1_8],
-					  0, 8, SPINOR_OP_READ_1_1_8,
-					  SNOR_PROTO_1_1_8);
+	if (info->flags & SPI_NOR_OPI_DTR) {
+		params->hwcaps.mask |= SNOR_HWCAPS_READ_8_8_8_DTR;
+		spi_nor_set_read_settings(&params->reads[SNOR_CMD_READ_8_8_8_DTR],
+					  0, 16, SPINOR_OP_READ_8_8_8_DTR,
+					  SNOR_PROTO_8_8_8_DTR);
 	}
 
 	/* Page Program settings. */
@@ -2055,6 +2156,7 @@ static int spi_nor_hwcaps_read2cmd(u32 hwcaps)
 		{ SNOR_HWCAPS_READ_1_8_8,	SNOR_CMD_READ_1_8_8 },
 		{ SNOR_HWCAPS_READ_8_8_8,	SNOR_CMD_READ_8_8_8 },
 		{ SNOR_HWCAPS_READ_1_8_8_DTR,	SNOR_CMD_READ_1_8_8_DTR },
+		{ SNOR_HWCAPS_READ_8_8_8_DTR,	SNOR_CMD_READ_8_8_8_DTR },
 	};
 
 	return spi_nor_hwcaps2cmd(hwcaps, hwcaps_read2cmd,
@@ -2172,7 +2274,6 @@ static int spi_nor_setup(struct spi_nor *nor, const struct flash_info *info,
 	/* SPI n-n-n protocols are not supported yet. */
 	ignored_mask = (SNOR_HWCAPS_READ_2_2_2 |
 			SNOR_HWCAPS_READ_4_4_4 |
-			SNOR_HWCAPS_READ_8_8_8 |
 			SNOR_HWCAPS_PP_4_4_4 |
 			SNOR_HWCAPS_PP_8_8_8);
 	if (shared_mask & ignored_mask) {
@@ -2180,6 +2281,9 @@ static int spi_nor_setup(struct spi_nor *nor, const struct flash_info *info,
 			"SPI n-n-n protocols are not supported yet.\n");
 		shared_mask &= ~ignored_mask;
 	}
+
+	nor->change_mode = info->change_mode;
+	nor->adjust_op = info->adjust_op;
 
 	/* Select the (Fast) Read command. */
 	err = spi_nor_select_read(nor, params, shared_mask);
@@ -2203,6 +2307,14 @@ static int spi_nor_setup(struct spi_nor *nor, const struct flash_info *info,
 		dev_dbg(nor->dev,
 			"can't select erase settings supported by both the SPI controller and memory.\n");
 		return err;
+	}
+
+	if (info->flags & SPI_NOR_OPI_DTR) {
+		err = spi_nor_calibrate(nor, SPI_NOR_MODE_OPI_DTR);
+		if (err) {
+			dev_err(nor->dev, "Controller calibration failed\n");
+			return err;
+		}
 	}
 
 	/* Enable Quad I/O if needed. */
