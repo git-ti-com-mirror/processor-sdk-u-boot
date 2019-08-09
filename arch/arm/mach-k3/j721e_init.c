@@ -48,8 +48,8 @@ void setup_initiator_credentials(void)
 	writel(DMSC_QOS_PVU_CTX(2), DMSC_QOS_DSS_DMA_MAP + 1 * 4);
 
 	/* DSS.VID2 */
-	writel(DMSC_QOS_PVU_CTX(2), DMSC_QOS_DSS_DMA_MAP + 2 * 4);
-	writel(DMSC_QOS_PVU_CTX(2), DMSC_QOS_DSS_DMA_MAP + 3 * 4);
+	writel(DMSC_QOS_PVU_CTX(2), DMSC_QOS_DSS_DMA_MAP + 4 * 4);
+	writel(DMSC_QOS_PVU_CTX(2), DMSC_QOS_DSS_DMA_MAP + 5 * 4);
 
 	/* DSS.VIDL2 */
 	writel(DMSC_QOS_PVU_CTX(2), DMSC_QOS_DSS_DMA_MAP + 6 * 4);
@@ -61,8 +61,8 @@ void setup_initiator_credentials(void)
 	writel(DMSC_QOS_PVU_CTX(3), DMSC_QOS_MMC0_WR_MAP);
 
 	/* DSS.VIDL1 */
-	writel(DMSC_QOS_PVU_CTX(3), DMSC_QOS_DSS_DMA_MAP + 4 * 4);
-	writel(DMSC_QOS_PVU_CTX(3), DMSC_QOS_DSS_DMA_MAP + 5 * 4);
+	writel(DMSC_QOS_PVU_CTX(3), DMSC_QOS_DSS_DMA_MAP + 2 * 4);
+	writel(DMSC_QOS_PVU_CTX(3), DMSC_QOS_DSS_DMA_MAP + 3 * 4);
 
 	/* GPU OS_id=0, chanid=[0-3] */
 	for (i = 0; i < 4; i++) {
@@ -158,7 +158,8 @@ void setup_dss_credentials(void)
 	/* set order ID for DSS masters, there are 10 masters in DSS */
 	for (ch = 0; ch < 10; ch++) {
 		pMapReg = (phys_addr_t *)((uintptr_t)DSS_DMA_QOS_BASE + 0x100 + (4 * ch));
-		pMapReg[ch] = 0x9 << 4;  /* Set orderid=9 */
+		pMapReg[ch] &= ~(GENMASK(7, 4));
+		pMapReg[ch] |= (0x9 << 4);  /* Set orderid=9 */
 	}
 
 	for (group = 0; group < 2; group++) {
