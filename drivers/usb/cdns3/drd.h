@@ -9,8 +9,7 @@
 #ifndef __LINUX_CDNS3_DRD
 #define __LINUX_CDNS3_DRD
 
-#include <common.h>
-#include <linux/bitops.h>
+#include <linux/types.h>
 #include <linux/usb/otg.h>
 #include "core.h"
 
@@ -154,7 +153,14 @@ struct cdns3_otg_common_regs {
 /* Only for CDNS3_CONTROLLER_V0 version */
 #define OVERRIDE_IDPULLUP_V0		BIT(24)
 
+int cdns3_is_host(struct cdns3 *cdns);
+int cdns3_is_device(struct cdns3 *cdns);
+int cdns3_get_id(struct cdns3 *cdns);
+int cdns3_get_vbus(struct cdns3 *cdns);
 int cdns3_drd_init(struct cdns3 *cdns);
+int cdns3_drd_exit(struct cdns3 *cdns);
+int cdns3_drd_update_mode(struct cdns3 *cdns);
+int cdns3_drd_switch_gadget(struct cdns3 *cdns, int on);
 int cdns3_drd_switch_host(struct cdns3 *cdns, int on);
 
 #endif /* __LINUX_CDNS3_DRD */

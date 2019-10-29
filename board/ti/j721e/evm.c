@@ -20,8 +20,11 @@
 
 #include "../common/board_detect.h"
 
-#define board_is_j721e_som()	(board_ti_is("J721EX-PM1-SOM") || \
-				 board_ti_is("J721EX-PM2-SOM"))
+#define board_is_j721e_som()	(board_ti_k3_is("J721EX-PM1-SOM") || \
+				 board_ti_k3_is("J721EX-PM2-SOM"))
+
+#define board_is_j721e_pm1_som()	board_ti_k3_is("J721EX-PM1-SOM")
+#define board_is_j721e_pm2_som()	board_ti_k3_is("J721EX-PM2-SOM")
 
 /* Max number of MAC addresses that are parsed/processed per daughter card */
 #define DAUGHTER_CARD_NO_OF_MAC_ADDR	8
@@ -75,8 +78,15 @@ int dram_init_banksize(void)
 #ifdef CONFIG_SPL_LOAD_FIT
 int board_fit_config_name_match(const char *name)
 {
-	if (!strcmp(name, "k3-j721e-common-proc-board"))
-		return 0;
+	if (board_is_j721e_pm1_som()) {
+		/* Loading for pm1 board a72 spl/u-boot */
+		if (!strcmp(name, "k3-j721e-tps65917-proc-board"))
+			return 0;
+	} else if (board_is_j721e_pm2_som()) {
+		/* Loading for pm2 board a72 spl/u-boot */
+		if (!strcmp(name, "k3-j721e-common-proc-board"))
+			return 0;
+	}
 
 	return -1;
 }
@@ -143,15 +153,30 @@ int do_board_detect(void)
 	return ret;
 }
 
+int checkboard(void)
+{
+	struct ti_am6_eeprom *ep = TI_AM6_EEPROM_DATA;
+
+	if (do_board_detect())
+		/* EEPROM not populated */
+		printf("Board: %s rev %s\n", "J721EX-PM1-SOM", "E2");
+	else
+		printf("Board: %s rev %s\n", ep->name, ep->version);
+
+	return 0;
+}
+
 static void setup_board_eeprom_env(void)
 {
-	char *name = "j721e";
+	char *name = "J721EX-PM2-SOM";
 
 	if (do_board_detect())
 		goto invalid_eeprom;
 
-	if (board_is_j721e_som())
-		name = "j721e";
+	if (board_ti_k3_is("J721EX-PM1-SOM"))
+		name = "J721EX-PM1-SOM";
+	else if (board_ti_k3_is("J721EX-PM2-SOM"))
+		name = "J721EX-PM2-SOM";
 	else
 		printf("Unidentified board claims %s in eeprom header\n",
 		       board_ti_get_name());
@@ -300,7 +325,7 @@ static int probe_daughtercards(void)
 		if (strncmp(ep.name, ext_cards[i].card_name, sizeof(ep.name)))
 			continue;
 
-		printf("detected %s\n", ext_cards[i].card_name);
+		printf("Detected: %s rev %s\n", ep.name, ep.version);
 		daughter_card_detect_flags[i] = true;
 
 #ifndef CONFIG_SPL_BUILD

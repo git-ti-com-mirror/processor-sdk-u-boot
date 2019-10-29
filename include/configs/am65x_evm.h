@@ -12,7 +12,7 @@
 #include <linux/sizes.h>
 #include <config_distro_bootcmd.h>
 #include <environment/ti/mmc.h>
-#include <environment/ti/am65x_dfu.h>
+#include <environment/ti/k3_dfu.h>
 #include <environment/ti/k3_rproc.h>
 
 #define CONFIG_ENV_SIZE			(128 << 10)
@@ -172,8 +172,8 @@
 		"ubi part ospi.rootfs; ubifsmount ubi:rootfs;\0"	\
 	"get_kern_ubi=ubifsload ${loadaddr} ${bootdir}/${name_kern}\0"	\
 	"get_fdt_ubi=ubifsload ${fdtaddr} ${bootdir}/${name_fdt}\0"	\
-	"args_ubi=setenv bootargs ${console} ${optargs} rootfstype=ubifs "\
-	"root=ubi0:rootfs rw ubi.mtd=ospi.rootfs\0"
+	"args_ubi=setenv bootargs console=${console} ${optargs} "	\
+		"rootfstype=ubifs root=ubi0:rootfs rw ubi.mtd=ospi.rootfs\0"
 
 #define DFUARGS \
 	"dfu_bufsiz=0x20000\0" \

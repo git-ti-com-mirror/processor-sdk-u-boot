@@ -10,6 +10,7 @@ obj-$(CONFIG_$(SPL_TPL_)INPUT) += input/
 obj-$(CONFIG_$(SPL_TPL_)LED) += led/
 obj-$(CONFIG_$(SPL_TPL_)MMC_SUPPORT) += mmc/
 obj-$(CONFIG_$(SPL_TPL_)NAND_SUPPORT) += mtd/nand/raw/
+obj-$(CONFIG_$(SPl_)MULTIPLEXER) += mux/
 obj-$(CONFIG_$(SPL_TPL_)PCH_SUPPORT) += pch/
 obj-$(CONFIG_$(SPL_TPL_)PCI) += pci/
 obj-$(CONFIG_$(SPL_TPL_)PHY) += phy/
@@ -108,6 +109,7 @@ obj-y += smem/
 obj-y += thermal/
 obj-$(CONFIG_TEE) += tee/
 obj-y += axi/
+obj-y += ufs/
 obj-$(CONFIG_W1) += w1/
 obj-$(CONFIG_W1_EEPROM) += w1-eeprom/
 

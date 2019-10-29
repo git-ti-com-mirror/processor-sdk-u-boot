@@ -20,6 +20,7 @@
 #include <dm/pinctrl.h>
 #include <clk.h>
 #include <remoteproc.h>
+#include "../../../board/ti/common/board_detect.h"
 
 extern void reinit_mmc_device(int dev);
 
@@ -55,6 +56,18 @@ void setup_initiator_credentials(void)
 	writel(DMSC_QOS_PVU_CTX(2), DMSC_QOS_DSS_DMA_MAP + 6 * 4);
 	writel(DMSC_QOS_PVU_CTX(2), DMSC_QOS_DSS_DMA_MAP + 7 * 4);
 
+	/* GPU OS_id=0, chanid=[0-3] */
+	for (i = 0; i < 4; i++) {
+		writel(DMSC_QOS_PVU_CTX(2),
+			(volatile unsigned int *)DMSC_QOS_GPU_M0_RD_MAP + i);
+		writel(DMSC_QOS_PVU_CTX(2),
+			(volatile unsigned int *)DMSC_QOS_GPU_M0_WR_MAP + i);
+		writel(DMSC_QOS_PVU_CTX(2),
+			(volatile unsigned int *)DMSC_QOS_GPU_M1_RD_MAP + i);
+		writel(DMSC_QOS_PVU_CTX(2),
+			(volatile unsigned int *)DMSC_QOS_GPU_M1_WR_MAP + i);
+	}
+
 	/* Initiators for virtid=3 */
 	/* MMC0 */
 	writel(DMSC_QOS_PVU_CTX(3), DMSC_QOS_MMC0_RD_MAP);
@@ -64,8 +77,8 @@ void setup_initiator_credentials(void)
 	writel(DMSC_QOS_PVU_CTX(3), DMSC_QOS_DSS_DMA_MAP + 2 * 4);
 	writel(DMSC_QOS_PVU_CTX(3), DMSC_QOS_DSS_DMA_MAP + 3 * 4);
 
-	/* GPU OS_id=0, chanid=[0-3] */
-	for (i = 0; i < 4; i++) {
+	/* GPU OS_id=1, chanid=[4-7] */
+	for (i = 4; i < 8; i++) {
 		writel(DMSC_QOS_PVU_CTX(3),
 			(volatile unsigned int *)DMSC_QOS_GPU_M0_RD_MAP + i);
 		writel(DMSC_QOS_PVU_CTX(3),
@@ -152,30 +165,45 @@ static void j721e_config_pm_done_callback(void)
 #ifdef CONFIG_CPU_V7R
 void setup_dss_credentials(void)
 {
-	unsigned int ch, group;
-	phys_addr_t *pMapReg, *pMap1Reg, *pMap2Reg;
+	unsigned int channel, group;
 
-	/* set order ID for DSS masters, there are 10 masters in DSS */
-	for (ch = 0; ch < 10; ch++) {
-		pMapReg = (phys_addr_t *)((uintptr_t)DSS_DMA_QOS_BASE + 0x100 + (4 * ch));
-		pMapReg[ch] &= ~(GENMASK(7, 4));
-		pMapReg[ch] |= (0x9 << 4);  /* Set orderid=9 */
+	/* two master ports: dma and fbdc */
+	/* two groups: SRAM and DDR */
+	/* 10 channels: (pipe << 1) | is_second_buffer */
+
+	/* master port 1 (dma) */
+
+	for (group = 0; group < 2; ++group) {
+		writel(0x76543210, QOS_DSS0_DMA_CBASS_GRP_MAP1(group));
+		writel(0xfedcba98, QOS_DSS0_DMA_CBASS_GRP_MAP2(group));
 	}
 
-	for (group = 0; group < 2; group++) {
-		pMap1Reg = (phys_addr_t *)((uintptr_t)DSS_DMA_QOS_BASE + 0x0 + (8 * group));
-		pMap2Reg = (phys_addr_t *)((uintptr_t)DSS_DMA_QOS_BASE + 0x4 + (8 * group));
-		*pMap1Reg = 0x76543210;
-		*pMap2Reg = 0xfedcba98;
+	for (channel = 0; channel < 10; ++channel) {
+		u8 orderid;
+
+		orderid = 0xf - channel;
+
+		writel((orderid << 4), QOS_DSS0_DMA_CBASS_MAP(channel));
+	}
+
+	/* master port 2 (fbdc) */
+
+	for (group = 0; group < 2; ++group) {
+		writel(0x76543210, QOS_DSS0_FBDC_CBASS_GRP_MAP1(group));
+		writel(0xfedcba98, QOS_DSS0_FBDC_CBASS_GRP_MAP2(group));
+	}
+
+	for (channel = 0; channel < 10; ++channel) {
+		u8 orderid;
+
+		orderid = 0xf - channel;
+
+		writel((orderid << 4), QOS_DSS0_FBDC_CBASS_MAP(channel));
 	}
 
 	/* Setup NB configuration */
 	*((unsigned int *)(CSL_NAVSS0_NBSS_NB0_CFG_MMRS_BASE + 0x10)) = 2;
 	*((unsigned int *)(CSL_NAVSS0_NBSS_NB1_CFG_MMRS_BASE + 0x10)) = 2;
-	*((unsigned int *)(CSL_DSS0_VIDL1_BASE + 0x3C)) = 0xFFF0800; /* 20000 */
-	*((unsigned int *)(CSL_DSS0_VIDL2_BASE + 0x3C)) = 0xFFF0800; /* 30000 */
-	*((unsigned int *)(CSL_DSS0_VID1_BASE + 0x3C)) = 0xFFF0800; /* 50000 */
-	*((unsigned int *)(CSL_DSS0_VID2_BASE + 0x3C)) = 0xFFF0800; /* 60000 */
 }
 
 static void j721e_setup_drive_strength(void)
@@ -209,7 +237,12 @@ static void j721e_setup_drive_strength(void)
 
 void board_init_f(ulong dummy)
 {
-#if defined(CONFIG_K3_J721E_DDRSS) || defined(CONFIG_K3_LOAD_SYSFW)
+#if defined(CONFIG_CPU_V7R) && defined(CONFIG_K3_AVS0)
+	int offset;
+	u32 val, dflt = 0;
+#endif
+#if defined(CONFIG_K3_J721E_DDRSS) || defined(CONFIG_K3_LOAD_SYSFW) || \
+	defined(CONFIG_ESM_K3) || defined(CONFIG_ESM_PMIC)
 	struct udevice *dev;
 	int ret;
 #endif
@@ -223,6 +256,7 @@ void board_init_f(ulong dummy)
 	ctrl_mmr_unlock();
 
 #ifdef CONFIG_CPU_V7R
+	disable_linefill_optimization();
 	setup_k3_mpu_regions();
 	setup_initiator_credentials();
 
@@ -287,9 +321,34 @@ void board_init_f(ulong dummy)
 	do_board_detect();
 
 #if defined(CONFIG_CPU_V7R) && defined(CONFIG_K3_AVS0)
+	if (board_ti_k3_is("J721EX-PM1-SOM")) {
+		offset = fdt_node_offset_by_compatible(gd->fdt_blob, -1,
+						       "ti,am654-vtm");
+		val = fdt_getprop_u32_default_node(gd->fdt_blob, offset, 0,
+						   "som1-supply-2", dflt);
+		do_fixup_by_compat_u32((void *)gd->fdt_blob, "ti,am654-vtm",
+				       "vdd-supply-2", val, 0);
+		val = fdt_getprop_u32_default_node(gd->fdt_blob, offset, 0,
+						   "vdd-supply-2", dflt);
+	}
+
 	ret = uclass_get_device(UCLASS_AVS, 0, &dev);
 	if (ret)
 		printf("AVS init failed: %d\n", ret);
+#endif
+
+#ifdef CONFIG_ESM_K3
+	ret = uclass_get_device_by_driver(UCLASS_MISC, DM_GET_DRIVER(k3_esm),
+					  &dev);
+	if (ret)
+		printf("MISC init failed: %d\n", ret);
+#endif
+
+#ifdef CONFIG_ESM_PMIC
+	ret = uclass_get_device_by_driver(UCLASS_MISC, DM_GET_DRIVER(pmic_esm),
+					  &dev);
+	if (ret)
+		printf("ESM PMIC init failed: %d\n", ret);
 #endif
 
 #if defined(CONFIG_K3_J721E_DDRSS)
@@ -301,14 +360,27 @@ void board_init_f(ulong dummy)
 
 u32 spl_boot_mode(const u32 boot_device)
 {
-	switch (boot_device) {
-	case BOOT_DEVICE_MMC1:
-		return MMCSD_MODE_EMMCBOOT;
-	case BOOT_DEVICE_MMC2:
-		return MMCSD_MODE_FS;
-	default:
+	u32 wkup_devstat = readl(CTRLMMR_WKUP_DEVSTAT);
+	u32 main_devstat;
+	u32 bootmode;
+
+	if (wkup_devstat & WKUP_DEVSTAT_MCU_OMLY_MASK) {
+		printf("ERROR: MCU only boot is not yet supported\n");
 		return MMCSD_MODE_RAW;
 	}
+
+	main_devstat = readl(CTRLMMR_MAIN_DEVSTAT);
+
+	bootmode = (wkup_devstat & WKUP_DEVSTAT_PRIMARY_BOOTMODE_MASK) >>
+			WKUP_DEVSTAT_PRIMARY_BOOTMODE_SHIFT;
+
+	bootmode |= (main_devstat & MAIN_DEVSTAT_BOOT_MODE_B_MASK) <<
+			BOOT_MODE_B_SHIFT;
+
+	if (bootmode == BOOT_DEVICE_MMC1)
+		return MMCSD_MODE_EMMCBOOT;
+	else
+		return MMCSD_MODE_FS;
 }
 
 static u32 __get_backup_bootmedia(u32 main_devstat)
@@ -317,8 +389,8 @@ static u32 __get_backup_bootmedia(u32 main_devstat)
 			MAIN_DEVSTAT_BKUP_BOOTMODE_SHIFT;
 
 	switch (bkup_boot) {
-	case BACKUP_BOOT_DEVICE_USB:
-		return BOOT_DEVICE_USB;
+	case BACKUP_BOOT_DEVICE_DFU:
+		return BOOT_DEVICE_DFU;
 	case BACKUP_BOOT_DEVICE_UART:
 		return BOOT_DEVICE_UART;
 	case BACKUP_BOOT_DEVICE_ETHERNET:

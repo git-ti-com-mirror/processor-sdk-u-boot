@@ -8,7 +8,14 @@
 
 #include <asm/armv7_mpu.h>
 
+#define AM654	2
+#define J721E	4
+
+#define REV_PG1_0	0
+#define REV_PG2_0	1
+
 void setup_k3_mpu_regions(void);
 int early_console_init(void);
 void start_non_linux_remote_cores(void);
 int load_firmware(char *name_fw, char *name_loadaddr, u32 *loadaddr);
+void disable_linefill_optimization(void);

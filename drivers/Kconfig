@@ -58,6 +58,8 @@ source "drivers/mmc/Kconfig"
 
 source "drivers/mtd/Kconfig"
 
+source "drivers/mux/Kconfig"
+
 source "drivers/net/Kconfig"
 
 source "drivers/nvme/Kconfig"
@@ -113,6 +115,8 @@ source "drivers/timer/Kconfig"
 source "drivers/tpm/Kconfig"
 
 source "drivers/usb/Kconfig"
+
+source "drivers/ufs/Kconfig"
 
 source "drivers/video/Kconfig"
 

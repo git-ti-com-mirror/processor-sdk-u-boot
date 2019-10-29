@@ -14,9 +14,25 @@
 #include <dt-structs.h>
 #include <errno.h>
 
-static inline const struct clk_ops *clk_dev_ops(struct udevice *dev)
+struct clk_uclass_priv {
+	int set_default_stage;
+};
+
+static int nop_clk_op(struct clk *clk)
 {
-	return (const struct clk_ops *)dev->driver->ops;
+	return 0;
+}
+
+struct clk_ops nop_clk_ops = {
+	.enable = nop_clk_op,
+	.disable = nop_clk_op,
+};
+
+static inline const struct clk_ops *clk_dev_ops(struct clk *clk)
+{
+	if (!clk)
+		return &nop_clk_ops;
+	return (const struct clk_ops *)clk->dev->driver->ops;
 }
 
 #if CONFIG_IS_ENABLED(OF_CONTROL)
@@ -86,7 +102,7 @@ static int clk_get_by_indexed_prop(struct udevice *dev, const char *prop_name,
 
 	clk->dev = dev_clk;
 
-	ops = clk_dev_ops(dev_clk);
+	ops = clk_dev_ops(clk);
 
 	if (ops->of_xlate)
 		ret = ops->of_xlate(clk, &args);
@@ -144,6 +160,7 @@ static int clk_set_default_parents(struct udevice *dev)
 	int index;
 	int num_parents;
 	int ret;
+	struct clk_uclass_priv *priv = dev_get_uclass_priv(dev);
 
 	num_parents = dev_count_phandle_with_args(dev, "assigned-clock-parents",
 						  "#clock-cells");
@@ -174,8 +191,18 @@ static int clk_set_default_parents(struct udevice *dev)
 			return ret;
 		}
 
-		ret = clk_set_parent(&clk, &parent_clk);
+		/* This is clk provider device trying to reparent itself
+		 * It cannot be done right now but need to wait after the
+		 * device is probed
+		 */
+		if (priv->set_default_stage == 0 && clk.dev == dev)
+			continue;
 
+		if (priv->set_default_stage > 0 && clk.dev != dev)
+			/* do not setup twice the parent clocks */
+			continue;
+
+		ret = clk_set_parent(&clk, &parent_clk);
 		/*
 		 * Not all drivers may support clock-reparenting (as of now).
 		 * Ignore errors due to this.
@@ -183,7 +210,7 @@ static int clk_set_default_parents(struct udevice *dev)
 		if (ret == -ENOSYS)
 			continue;
 
-		if (ret) {
+		if (ret < 0) {
 			debug("%s: failed to reparent clock %d for %s\n",
 			      __func__, index, dev_read_name(dev));
 			return ret;
@@ -201,6 +228,7 @@ static int clk_set_default_rates(struct udevice *dev)
 	int size;
 	int ret = 0;
 	u32 *rates = NULL;
+	struct clk_uclass_priv *priv = dev_get_uclass_priv(dev);
 
 	size = dev_read_size(dev, "assigned-clock-rates");
 	if (size < 0)
@@ -228,7 +256,19 @@ static int clk_set_default_rates(struct udevice *dev)
 			continue;
 		}
 
+		/* This is clk provider device trying to program itself
+		 * It cannot be done right now but need to wait after the
+		 * device is probed
+		 */
+		if (priv->set_default_stage == 0 && clk.dev == dev)
+			continue;
+
+		if (priv->set_default_stage > 0 && clk.dev != dev)
+			/* do not setup twice the parent clocks */
+			continue;
+
 		ret = clk_set_rate(&clk, rates[index]);
+
 		if (ret < 0) {
 			debug("%s: failed to set rate on clock %d for %s\n",
 			      __func__, index, dev_read_name(dev));
@@ -306,11 +346,13 @@ int clk_release_all(struct clk *clk, int count)
 
 int clk_request(struct udevice *dev, struct clk *clk)
 {
-	const struct clk_ops *ops = clk_dev_ops(dev);
+	const struct clk_ops *ops;
 
 	debug("%s(dev=%p, clk=%p)\n", __func__, dev, clk);
 
 	clk->dev = dev;
+
+	ops =  clk_dev_ops(clk);
 
 	if (!ops->request)
 		return 0;
@@ -320,7 +362,7 @@ int clk_request(struct udevice *dev, struct clk *clk)
 
 int clk_free(struct clk *clk)
 {
-	const struct clk_ops *ops = clk_dev_ops(clk->dev);
+	const struct clk_ops *ops = clk_dev_ops(clk);
 
 	debug("%s(clk=%p)\n", __func__, clk);
 
@@ -332,7 +374,7 @@ int clk_free(struct clk *clk)
 
 ulong clk_get_rate(struct clk *clk)
 {
-	const struct clk_ops *ops = clk_dev_ops(clk->dev);
+	const struct clk_ops *ops = clk_dev_ops(clk);
 
 	debug("%s(clk=%p)\n", __func__, clk);
 
@@ -344,7 +386,7 @@ ulong clk_get_rate(struct clk *clk)
 
 ulong clk_set_rate(struct clk *clk, ulong rate)
 {
-	const struct clk_ops *ops = clk_dev_ops(clk->dev);
+	const struct clk_ops *ops = clk_dev_ops(clk);
 
 	debug("%s(clk=%p, rate=%lu)\n", __func__, clk, rate);
 
@@ -356,7 +398,7 @@ ulong clk_set_rate(struct clk *clk, ulong rate)
 
 int clk_set_parent(struct clk *clk, struct clk *parent)
 {
-	const struct clk_ops *ops = clk_dev_ops(clk->dev);
+	const struct clk_ops *ops = clk_dev_ops(clk);
 
 	debug("%s(clk=%p, parent=%p)\n", __func__, clk, parent);
 
@@ -368,7 +410,7 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 
 int clk_enable(struct clk *clk)
 {
-	const struct clk_ops *ops = clk_dev_ops(clk->dev);
+	const struct clk_ops *ops = clk_dev_ops(clk);
 
 	debug("%s(clk=%p)\n", __func__, clk);
 
@@ -393,7 +435,7 @@ int clk_enable_bulk(struct clk_bulk *bulk)
 
 int clk_disable(struct clk *clk)
 {
-	const struct clk_ops *ops = clk_dev_ops(clk->dev);
+	const struct clk_ops *ops = clk_dev_ops(clk);
 
 	debug("%s(clk=%p)\n", __func__, clk);
 
@@ -422,6 +464,9 @@ bool clk_is_match(const struct clk *p, const struct clk *q)
 	if (p == q)
 		return true;
 
+	if (!p || !q)
+		return false;
+
 	/* same device, id and data */
 	if (p->dev == q->dev && p->id == q->id && p->data == q->data)
 		return true;
@@ -429,7 +474,74 @@ bool clk_is_match(const struct clk *p, const struct clk *q)
 	return false;
 }
 
+static void devm_clk_release(struct udevice *dev, void *res)
+{
+	clk_free(res);
+}
+
+static int devm_clk_match(struct udevice *dev, void *res, void *data)
+{
+	return res == data;
+}
+
+struct clk *devm_clk_get(struct udevice *dev, const char *id)
+{
+	int rc;
+	struct clk *clk;
+
+	clk = devres_alloc(devm_clk_release, sizeof(struct clk), __GFP_ZERO);
+	if (unlikely(!clk))
+		return ERR_PTR(-ENOMEM);
+
+	rc = clk_get_by_name(dev, id, clk);
+	if (rc)
+		return ERR_PTR(rc);
+
+	devres_add(dev, clk);
+	return clk;
+}
+
+struct clk *devm_clk_get_optional(struct udevice *dev, const char *id)
+{
+	struct clk *clk = devm_clk_get(dev, id);
+
+	if (IS_ERR(clk))
+		return NULL;
+
+	return clk;
+}
+
+void devm_clk_put(struct udevice *dev, struct clk *clk)
+{
+	int rc;
+
+	if (!clk)
+		return;
+
+	rc = devres_destroy(dev, devm_clk_release, devm_clk_match, clk);
+	WARN_ON(rc);
+}
+
+int clk_uclass_post_probe(struct udevice *dev)
+{
+	struct clk_uclass_priv *priv = dev_get_uclass_priv(dev);
+
+	priv->set_default_stage = 1;
+
+	/*
+	 * when a clock provider is probed. Call clk_set_defaults()
+	 * also after the device is probed. This takes care of cases
+	 * where the DT is used to setup default parents and rates
+	 * using assigned-clocks
+	 */
+	clk_set_defaults(dev);
+
+	return 0;
+}
+
 UCLASS_DRIVER(clk) = {
 	.id		= UCLASS_CLK,
 	.name		= "clk",
+	.post_probe	= clk_uclass_post_probe,
+	.per_device_auto_alloc_size = sizeof(struct clk_uclass_priv),
 };

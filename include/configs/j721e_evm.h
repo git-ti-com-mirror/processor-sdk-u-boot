@@ -13,6 +13,8 @@
 #include <config_distro_bootcmd.h>
 #include <environment/ti/mmc.h>
 #include <environment/ti/k3_rproc.h>
+#include <environment/ti/k3_dfu.h>
+#include <environment/ti/ufs.h>
 
 #define CONFIG_ENV_SIZE			(128 << 10)
 
@@ -26,9 +28,11 @@
 					 CONFIG_SYS_K3_NON_SECURE_MSRAM_SIZE)
 #define CONFIG_SYS_SPI_U_BOOT_OFFS	0x280000
 #define CONFIG_SYS_UBOOT_BASE		0x50280000
+#define CONFIG_SPL_LOAD_FIT_ADDRESS	0x81000000
 #else
 #define CONFIG_SPL_TEXT_BASE		0x41c00000
 #define CONFIG_SYS_UBOOT_BASE		0x50080000
+#define CONFIG_SPL_LOAD_FIT_ADDRESS	0x80080000
 /*
  * Maximum size in memory allocated to the SPL BSS. Keep it as tight as
  * possible (to allow the build to go through), as this directly affects
@@ -70,9 +74,11 @@
 
 /* U-Boot general configuration */
 #define EXTRA_ENV_J721E_BOARD_SETTINGS					\
-	"default_device_tree=" CONFIG_DEFAULT_DEVICE_TREE ".dtb\0"	\
 	"findfdt="							\
-		"setenv fdtfile ${default_device_tree};"		\
+		"if test $board_name = J721EX-PM2-SOM; then "		\
+			"setenv fdtfile k3-j721e-common-proc-board.dtb; fi;" \
+		"if test $board_name = J721EX-PM1-SOM; then "		\
+			"setenv fdtfile k3-j721e-proc-board-tps65917.dtb; fi;" \
 		"setenv overlay_files ${name_overlays}\0"		\
 	"loadaddr=0x80080000\0"						\
 	"fdtaddr=0x82000000\0"						\
@@ -175,6 +181,14 @@
 #define EXTRA_ENV_J721E_BOARD_SETTINGS_MTD
 #endif
 
+/* set default dfu_bufsiz to 128KB (sector size of OSPI) */
+#define DFUARGS \
+	"dfu_bufsiz=0x20000\0" \
+	DFU_ALT_INFO_MMC \
+	DFU_ALT_INFO_EMMC \
+	DFU_ALT_INFO_RAM \
+	DFU_ALT_INFO_OSPI
+
 /* Incorporate settings into the U-Boot environment */
 #define CONFIG_EXTRA_ENV_SETTINGS					\
 	DEFAULT_MMC_TI_ARGS						\
@@ -183,7 +197,9 @@
 	EXTRA_ENV_J721E_BOARD_SETTINGS_MMC				\
 	EXTRA_ENV_J721E_BOARD_SETTINGS_EMMC_ANDROID			\
 	EXTRA_ENV_RPROC_SETTINGS					\
-	EXTRA_ENV_J721E_BOARD_SETTINGS_MTD
+	EXTRA_ENV_J721E_BOARD_SETTINGS_MTD				\
+	DFUARGS								\
+	DEFAULT_UFS_TI_ARGS
 
 /* Now for the remaining common defines */
 #include <configs/ti_armv7_common.h>

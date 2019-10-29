@@ -33,6 +33,7 @@ DECLARE_GLOBAL_DATA_PTR;
 #define GIGABITEN		BIT(7)
 #define FULLDUPLEXEN		BIT(0)
 #define MIIEN			BIT(15)
+#define CTL_EXT_EN		BIT(18)
 /* DMA Registers */
 #define CPDMA_TXCONTROL		0x004
 #define CPDMA_RXCONTROL		0x014
@@ -489,6 +490,8 @@ static int cpsw_slave_update_link(struct cpsw_slave *slave,
 			mac_control |= FULLDUPLEXEN;
 		if (phy->speed == 100)
 			mac_control |= MIIEN;
+		if (phy->speed == 10 && phy_interface_is_rgmii(phy))
+			mac_control |= CTL_EXT_EN;
 	}
 
 	if (mac_control == slave->mac_control)
@@ -836,6 +839,7 @@ static int cpsw_phy_init(struct cpsw_priv *priv, struct cpsw_slave *slave)
 {
 	struct phy_device *phydev;
 	u32 supported = PHY_GBIT_FEATURES;
+	int ret;
 
 	phydev = phy_connect(priv->bus,
 			slave->data->phy_addr,
@@ -846,6 +850,13 @@ static int cpsw_phy_init(struct cpsw_priv *priv, struct cpsw_slave *slave)
 		return -1;
 
 	phydev->supported &= supported;
+	if (slave->data->max_speed) {
+		ret = phy_set_supported(phydev, slave->data->max_speed);
+		if (ret)
+			return ret;
+		dev_dbg(priv->dev, "Port %u speed forced to %uMbit\n",
+			slave->slave_num + 1, slave->data->max_speed);
+	}
 	phydev->advertising = phydev->supported;
 
 #ifdef CONFIG_DM_ETH
@@ -1176,12 +1187,47 @@ static int cpsw_eth_probe(struct udevice *dev)
 }
 
 #if CONFIG_IS_ENABLED(OF_CONTROL)
+static void cpsw_eth_of_parse_slave(struct cpsw_platform_data *data,
+				    int slave_index, int subnode)
+{
+	struct cpsw_slave_data	*slave_data;
+	const void *fdt = gd->fdt_blob;
+	const char *phy_mode;
+	int max_speed = -1;
+	u32 phy_id[2];
+
+	slave_data = &data->slave_data[slave_index];
+
+	phy_mode = fdt_getprop(fdt, subnode, "phy-mode", NULL);
+	if (phy_mode)
+		slave_data->phy_if =
+			phy_get_interface_by_name(phy_mode);
+
+	slave_data->phy_of_handle = fdtdec_lookup_phandle(fdt, subnode,
+							  "phy-handle");
+
+	if (data->slave_data[slave_index].phy_of_handle >= 0) {
+		slave_data->phy_addr =
+			fdtdec_get_int(fdt, slave_data->phy_of_handle,
+				       "reg", -1);
+	} else {
+		fdtdec_get_int_array(fdt, subnode, "phy_id",
+				     phy_id, 2);
+		slave_data->phy_addr = phy_id[1];
+	}
+
+	slave_data->max_speed = 0;
+	max_speed = fdtdec_get_int(fdt, subnode,
+				   "max-speed", max_speed);
+	if (max_speed > 0)
+		slave_data->max_speed = max_speed;
+}
+
 static int cpsw_eth_ofdata_to_platdata(struct udevice *dev)
 {
 	struct eth_pdata *pdata = dev_get_platdata(dev);
 	struct cpsw_platform_data *data;
 	struct gpio_desc *mode_gpios;
-	const char *phy_mode;
 	const void *fdt = gd->fdt_blob;
 	int node = dev_of_offset(dev);
 	int subnode;
@@ -1264,30 +1310,10 @@ static int cpsw_eth_ofdata_to_platdata(struct udevice *dev)
 		}
 
 		if (!strncmp(name, "slave", 5)) {
-			u32 phy_id[2];
-
 			if (slave_index >= data->slaves)
 				continue;
-			phy_mode = fdt_getprop(fdt, subnode, "phy-mode", NULL);
-			if (phy_mode)
-				data->slave_data[slave_index].phy_if =
-					phy_get_interface_by_name(phy_mode);
 
-			data->slave_data[slave_index].phy_of_handle =
-				fdtdec_lookup_phandle(fdt, subnode,
-						      "phy-handle");
-
-			if (data->slave_data[slave_index].phy_of_handle >= 0) {
-				data->slave_data[slave_index].phy_addr =
-						fdtdec_get_int(gd->fdt_blob,
-						data->slave_data[slave_index].phy_of_handle,
-							       "reg", -1);
-			} else {
-				fdtdec_get_int_array(fdt, subnode, "phy_id",
-						     phy_id, 2);
-				data->slave_data[slave_index].phy_addr =
-						phy_id[1];
-			}
+			cpsw_eth_of_parse_slave(data, slave_index, subnode);
 			slave_index++;
 		}
 
@@ -1328,7 +1354,8 @@ static int cpsw_eth_ofdata_to_platdata(struct udevice *dev)
 
 	pdata->phy_interface = data->slave_data[active_slave].phy_if;
 	if (pdata->phy_interface == -1) {
-		debug("%s: Invalid PHY interface '%s'\n", __func__, phy_mode);
+		debug("%s: Invalid PHY interface '%s'\n", __func__,
+		      phy_string_for_interface(pdata->phy_interface));
 		return -EINVAL;
 	}
 

@@ -367,13 +367,14 @@ int dm_gpio_set_value(const struct gpio_desc *desc, int value)
 
 int dm_gpio_get_open_drain(struct gpio_desc *desc)
 {
-	struct dm_gpio_ops *ops = gpio_get_ops(desc->dev);
+	struct dm_gpio_ops *ops;
 	int ret;
 
 	ret = check_reserved(desc, "get_open_drain");
 	if (ret)
 		return ret;
 
+	ops = gpio_get_ops(desc->dev);
 	if (ops->set_open_drain)
 		return ops->get_open_drain(desc->dev, desc->offset);
 	else
@@ -382,13 +383,14 @@ int dm_gpio_get_open_drain(struct gpio_desc *desc)
 
 int dm_gpio_set_open_drain(struct gpio_desc *desc, int value)
 {
-	struct dm_gpio_ops *ops = gpio_get_ops(desc->dev);
+	struct dm_gpio_ops *ops;
 	int ret;
 
 	ret = check_reserved(desc, "set_open_drain");
 	if (ret)
 		return ret;
 
+	ops = gpio_get_ops(desc->dev);
 	if (ops->set_open_drain)
 		ret = ops->set_open_drain(desc->dev, desc->offset, value);
 	else
@@ -399,14 +401,16 @@ int dm_gpio_set_open_drain(struct gpio_desc *desc, int value)
 
 int dm_gpio_set_dir_flags(struct gpio_desc *desc, ulong flags)
 {
-	struct udevice *dev = desc->dev;
-	struct dm_gpio_ops *ops = gpio_get_ops(dev);
+	struct udevice *dev;
+	struct dm_gpio_ops *ops;
 	int ret;
 
 	ret = check_reserved(desc, "set_dir");
 	if (ret)
 		return ret;
 
+	dev = desc->dev;
+	ops = gpio_get_ops(dev);
 	if (flags & GPIOD_IS_OUT) {
 		int value = flags & GPIOD_IS_OUT_ACTIVE ? 1 : 0;
 
@@ -819,7 +823,7 @@ static int gpio_renumber(struct udevice *removed_dev)
 
 int gpio_get_number(const struct gpio_desc *desc)
 {
-	struct udevice *dev = desc->dev;
+	struct udevice *dev = desc ? desc->dev : NULL;
 	struct gpio_dev_priv *uc_priv;
 
 	if (!dev)
@@ -852,6 +856,74 @@ static int gpio_pre_remove(struct udevice *dev)
 	free(uc_priv->name);
 
 	return gpio_renumber(dev);
+}
+
+static void devm_gpiod_release(struct udevice *dev, void *res)
+{
+	dm_gpio_free(dev, res);
+}
+
+static int devm_gpiod_match(struct udevice *dev, void *res, void *data)
+{
+	return res == data;
+}
+
+struct gpio_desc *devm_gpiod_get_index(struct udevice *dev, const char *id,
+				       unsigned int index, int flags)
+{
+	int rc;
+	struct gpio_desc *desc;
+	char *propname;
+	static const char suffix[] = "-gpios";
+
+	propname = malloc(strlen(id) + sizeof(suffix));
+	if (!propname) {
+		rc = -ENOMEM;
+		goto end;
+	}
+
+	strcpy(propname, id);
+	strcat(propname, suffix);
+
+	desc = devres_alloc(devm_gpiod_release, sizeof(struct gpio_desc),
+			    __GFP_ZERO);
+	if (unlikely(!desc)) {
+		rc = -ENOMEM;
+		goto end;
+	}
+
+	rc = gpio_request_by_name(dev, propname, index, desc, flags);
+
+end:
+	if (propname)
+		free(propname);
+
+	if (rc)
+		return ERR_PTR(rc);
+
+	devres_add(dev, desc);
+	return desc;
+}
+
+struct gpio_desc *devm_gpiod_get_index_optional(struct udevice *dev,
+						const char *id,
+						unsigned int index,
+						int flags)
+{
+	struct gpio_desc *desc = devm_gpiod_get_index(dev, id, index, flags);
+
+	if (IS_ERR(desc))
+		return NULL;
+
+	return desc;
+}
+
+void devm_gpiod_put(struct udevice *dev, struct gpio_desc *desc)
+{
+	int rc;
+
+	rc = devres_destroy(dev, devm_gpiod_release, devm_gpiod_match, desc);
+	WARN_ON(rc);
 }
 
 static int gpio_post_bind(struct udevice *dev)

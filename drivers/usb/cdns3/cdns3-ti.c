@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /**
- * cdns-ti.c - TI specific Glue layer for Cadence USB Controller
+ * cdns_ti-ti.c - TI specific Glue layer for Cadence USB Controller
  *
  * Copyright (C) 2019 Texas Instruments Incorporated - http://www.ti.com
  */
@@ -9,11 +9,11 @@
 #include <asm-generic/io.h>
 #include <clk.h>
 #include <dm.h>
-#include <dm/device-internal.h>
-#include <dm/lists.h>
 #include <linux/io.h>
 #include <linux/usb/otg.h>
 #include <malloc.h>
+
+#include "core.h"
 
 /* USB Wrapper register offsets */
 #define USBSS_PID		0x0
@@ -51,8 +51,8 @@ enum modestrap_mode { USBSS_MODESTRAP_MODE_NONE,
 struct cdns_ti {
 	struct udevice *dev;
 	void __iomem *usbss;
-	int usb2_only;
-	int vbus_divider;
+	int usb2_only:1;
+	int vbus_divider:1;
 	struct clk *usb2_refclk;
 	struct clk *lpm_clk;
 };
@@ -163,57 +163,31 @@ static int cdns_ti_probe(struct udevice *dev)
 	return 0;
 }
 
-static int cdns_ti_bind(struct udevice *parent)
+static int cdns_ti_remove(struct udevice *dev)
 {
-	int from = dev_of_offset(parent);
-	const void *fdt = gd->fdt_blob;
-	enum usb_dr_mode dr_mode;
-	struct udevice *dev;
-	const char *driver;
-	const char *name;
-	int node;
-	int ret;
+	struct cdns_ti *data = dev_get_platdata(dev);
+	u32 reg;
 
-	node = fdt_node_offset_by_compatible(fdt, from, "cdns,usb3-1.0.1");
-	if (node < 0)
-		return -ENODEV;
-
-	name = fdt_get_name(fdt, node, NULL);
-	dr_mode = usb_get_dr_mode(node);
-
-	switch (dr_mode) {
-#if defined(CONFIG_SPL_USB_HOST_SUPPORT) || !defined(CONFIG_SPL_BUILD)
-	case USB_DR_MODE_HOST:
-		debug("%s: dr_mode: HOST\n", __func__);
-		driver = "cdns-usb3-host";
-		break;
-#endif
-	default:
-		printf("%s: unsupported dr_mode\n", __func__);
-		return -ENODEV;
-	};
-
-	ret = device_bind_driver_to_node(parent, driver, name,
-					 offset_to_ofnode(node), &dev);
-	if (ret) {
-		printf("%s: not able to bind usb device mode\n",
-		       __func__);
-		return ret;
-	}
+	/* put device back to RESET*/
+	reg = cdns_ti_readl(data, USBSS_W1);
+	reg &= ~USBSS_W1_PWRUP_RST;
+	cdns_ti_writel(data, USBSS_W1, reg);
 
 	return 0;
 }
 
-static const struct udevice_id cdns_ti_ids[] = {
-	{ .compatible = "ti,j721e-usb" },
-	{ }
+static const struct udevice_id cdns_ti_of_match[] = {
+	{ .compatible = "ti,j721e-usb", },
+	{},
 };
 
 U_BOOT_DRIVER(cdns_ti) = {
-	.name	= "cdns-ti",
-	.id	= UCLASS_NOP,
-	.of_match = cdns_ti_ids,
-	.bind = cdns_ti_bind,
+	.name = "cdns-ti",
+	.id = UCLASS_NOP,
+	.of_match = cdns_ti_of_match,
+	.bind = cdns3_bind,
 	.probe = cdns_ti_probe,
+	.remove = cdns_ti_remove,
 	.platdata_auto_alloc_size = sizeof(struct cdns_ti),
+	.flags = DM_FLAG_OS_PREPARE,
 };
