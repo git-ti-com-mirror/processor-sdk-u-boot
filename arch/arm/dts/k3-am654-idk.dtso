@@ -20,54 +20,47 @@
 	__overlay__ {
 		aliases {
 			ethernet2 = &pruss0_eth;
+			ethernet3 = &pruss1_eth;
 		};
 
 		/* Dual Ethernet application node on PRU-ICSSG0 */
 		pruss0_eth: pruss0_eth {
-			compatible = "ti,am654-dualicssg-prueth";
+			compatible = "ti,am654-icssg-prueth";
 			pinctrl-names = "default";
-			pinctrl-0 = <&icssg01_rgmii_pins_default>;
+			pinctrl-0 = <&icssg0_rgmii_pins_default>;
 			sram = <&icssg0_sram>;
-			clocks = <&k3_clks 62 3>, <&k3_clks 63 3>;
-			clock-names = "mdio_fck", "mdio1_fck";
+			clocks = <&k3_clks 62 3>;
+			clock-names = "mdio_fck";
 
-			prus = <&pru0_0>, <&rtu0_0>, <&pru0_1>, <&rtu0_1>, <&pru1_0>, <&rtu1_0>, <&pru1_1>, <&rtu1_1>;
+			prus = <&pru0_0>, <&rtu0_0>, <&pru0_1>, <&rtu0_1>;
 			firmware-name = "ti-pruss/am65x-pru0-prueth-fw.elf",
-					"ti-pruss/am65x-rtu0-prueth-fw.elf",
-					"ti-pruss/am65x-pru1-prueth-fw.elf",
-					"ti-pruss/am65x-rtu1-prueth-fw.elf",
-					"ti-pruss/am65x-pru0-prueth-fw.elf",
 					"ti-pruss/am65x-rtu0-prueth-fw.elf",
 					"ti-pruss/am65x-pru1-prueth-fw.elf",
 					"ti-pruss/am65x-rtu1-prueth-fw.elf";
 			mii-g-rt = <&icssg0_mii_g_rt>;
-			mii-g-rt-paired = <&icssg1_mii_g_rt>;
 			dma-coherent;
-			dmas =  <&mcu_udmap &icssg0 4 UDMA_DIR_TX>, /* egress icssg0 slice 1 */
-				<&mcu_udmap &icssg0 5 UDMA_DIR_TX>, /* egress icssg0 slice 1 */
-				<&mcu_udmap &icssg0 6 UDMA_DIR_TX>, /* egress icssg0 slice 1 */
-				<&mcu_udmap &icssg0 7 UDMA_DIR_TX>, /* egress icssg0 mgmnt cmd slice 1 */
+			dmas = <&mcu_udmap &icssg0 0 UDMA_DIR_TX>, /* egress slice 0 */
+			       <&mcu_udmap &icssg0 1 UDMA_DIR_TX>, /* egress slice 0 */
+			       <&mcu_udmap &icssg0 2 UDMA_DIR_TX>, /* egress slice 0 */
+			       <&mcu_udmap &icssg0 3 UDMA_DIR_TX>, /* egress slice 0 */
+			       <&mcu_udmap &icssg0 4 UDMA_DIR_TX>, /* egress slice 1 */
+			       <&mcu_udmap &icssg0 5 UDMA_DIR_TX>, /* egress slice 1 */
+			       <&mcu_udmap &icssg0 6 UDMA_DIR_TX>, /* egress slice 1 */
+			       <&mcu_udmap &icssg0 7 UDMA_DIR_TX>, /* egress slice 1 */
 
-				<&mcu_udmap &icssg0 0 UDMA_DIR_RX>, /* ingress icssg0 slice 0 */
-				<&mcu_udmap &icssg0 2 UDMA_DIR_RX>, /* ingress icssg0 mgmnt resp slice 0 */
-
-				<&mcu_udmap &icssg1 4 UDMA_DIR_TX>, /* egress icssg1 slice 1 */
-				<&mcu_udmap &icssg1 5 UDMA_DIR_TX>, /* egress icssg1 slice 1 */
-				<&mcu_udmap &icssg1 6 UDMA_DIR_TX>, /* egress icssg1 slice 1 */
-				<&mcu_udmap &icssg1 7 UDMA_DIR_TX>, /* egress icssg1 mgmnt cmd slice 1 */
-
-
-				<&mcu_udmap &icssg1 0 UDMA_DIR_RX>, /* ingress icssg1 slice 0 */
-				<&mcu_udmap &icssg1 2 UDMA_DIR_RX>; /* ingress icssg1 mgmnt resp slice 0 */
+			       <&mcu_udmap &icssg0 0 UDMA_DIR_RX>, /* ingress slice 0 */
+			       <&mcu_udmap &icssg0 1 UDMA_DIR_RX>, /* ingress slice 1 */
+			       <&mcu_udmap &icssg0 2 UDMA_DIR_RX>, /* mgmnt rsp slice 0 */
+			       <&mcu_udmap &icssg0 3 UDMA_DIR_RX>; /* mgmnt rsp slice 1 */
 			dma-names = "tx0-0", "tx0-1", "tx0-2", "tx0-3",
-				    "rx0", "rxmgm0",
 				    "tx1-0", "tx1-1", "tx1-2", "tx1-3",
-				    "rx1", "rxmgm1";
+				    "rx0", "rx1",
+				    "rxmgm0", "rxmgm1";
 
 			pruss0_emac0: ethernet-mii0 {
 				phy-handle = <&pruss0_eth0_phy>;
 				phy-mode = "rgmii-rxid";
-				syscon-rgmii-delay = <&scm_conf 0x4114>;
+				syscon-rgmii-delay = <&scm_conf 0x4100>;
 				/* Filled in by bootloader */
 				local-mac-address = [00 00 00 00 00 00];
 			};
@@ -86,6 +79,61 @@
 */
 		};
 
+		/* Dual Ethernet application node on PRU-ICSSG1 */
+		pruss1_eth: pruss1_eth {
+			compatible = "ti,am654-icssg-prueth";
+			pinctrl-names = "default";
+			pinctrl-0 = <&icssg1_rgmii_pins_default>;
+			sram = <&icssg1_sram>;
+			clocks = <&k3_clks 63 3>;
+			clock-names = "mdio_fck";
+
+			prus = <&pru1_0>, <&rtu1_0>, <&pru1_1>, <&rtu1_1>;
+			firmware-name = "ti-pruss/am65x-pru0-prueth-fw.elf",
+					"ti-pruss/am65x-rtu0-prueth-fw.elf",
+					"ti-pruss/am65x-pru1-prueth-fw.elf",
+					"ti-pruss/am65x-rtu1-prueth-fw.elf";
+			mii-g-rt = <&icssg1_mii_g_rt>;
+			dma-coherent;
+			dmas = <&mcu_udmap &icssg1 0 UDMA_DIR_TX>, /* egress slice 0 */
+			       <&mcu_udmap &icssg1 1 UDMA_DIR_TX>, /* egress slice 0 */
+			       <&mcu_udmap &icssg1 2 UDMA_DIR_TX>, /* egress slice 0 */
+			       <&mcu_udmap &icssg1 3 UDMA_DIR_TX>, /* egress slice 0 */
+			       <&mcu_udmap &icssg1 4 UDMA_DIR_TX>, /* egress slice 1 */
+			       <&mcu_udmap &icssg1 5 UDMA_DIR_TX>, /* egress slice 1 */
+			       <&mcu_udmap &icssg1 6 UDMA_DIR_TX>, /* egress slice 1 */
+			       <&mcu_udmap &icssg1 7 UDMA_DIR_TX>, /* egress slice 1 */
+
+			       <&mcu_udmap &icssg1 0 UDMA_DIR_RX>, /* ingress slice 0 */
+			       <&mcu_udmap &icssg1 1 UDMA_DIR_RX>, /* ingress slice 1 */
+			       <&mcu_udmap &icssg1 2 UDMA_DIR_RX>, /* mgmnt rsp slice 0 */
+			       <&mcu_udmap &icssg1 3 UDMA_DIR_RX>; /* mgmnt rsp slice 1 */
+			dma-names = "tx0-0", "tx0-1", "tx0-2", "tx0-3",
+				    "tx1-0", "tx1-1", "tx1-2", "tx1-3",
+				    "rx0", "rx1",
+				    "rxmgm0", "rxmgm1";
+
+			pruss1_emac0: ethernet-mii0 {
+				phy-handle = <&pruss1_eth0_phy>;
+				phy-mode = "rgmii-rxid";
+				syscon-rgmii-delay = <&scm_conf 0x4110>;
+				/* Filled in by bootloader */
+				local-mac-address = [00 00 00 00 00 00];
+			};
+
+/*
+ * Commenting out the second mii interface as the framework
+ * supports one interface in a single probe
+ * So either mii1 or mii2 can be used. In case mii1 is needed
+ * uncomment mii1 and comment out mii0
+			pruss1_emac1: ethernet-mii1 {
+				phy-handle = <&pruss1_eth1_phy>;
+				phy-mode = "rgmii-rxid";
+				syscon-rgmii-delay = <&scm_conf 0x4114>;
+				local-mac-address = [00 00 00 00 00 00];
+			};
+*/
+		};
 	};
   };
 };
@@ -98,7 +146,7 @@
 		>;
 	};
 
-	icssg01_rgmii_pins_default: icssg01_rgmii_pins_default {
+	icssg0_rgmii_pins_default: icssg0_rgmii_pins_default {
 		pinctrl-single,pins = <
 			AM65X_IOPAD(0x0244, PIN_INPUT, 2) /* (AB28) PRG0_PRU1_GPO0.PRG0_RGMII2_RD0 */
 			AM65X_IOPAD(0x0248, PIN_INPUT, 2) /* (AC28) PRG0_PRU1_GPO1.PRG0_RGMII2_RD1 */
@@ -128,7 +176,18 @@
 			/* HACK As there is no driver for mdio */
 			AM65X_IOPAD(0x0294, PIN_INPUT , 0) /* (AE26) PRG0_MDIO0_MDIO */
 			AM65X_IOPAD(0x0298, PIN_OUTPUT , 0) /* (AE28) PRG0_MDIO0_MDC */
+		>;
+	};
 
+	icssg1_mdio_pins_default: icssg1_mdio_pins_default {
+		pinctrl-single,pins = <
+			AM65X_IOPAD(0x0180, PIN_INPUT, 0) /* (AD18) PRG1_MDIO0_MDIO */
+			AM65X_IOPAD(0x0184, PIN_OUTPUT, 0) /* (AH18) PRG1_MDIO0_MDC */
+		>;
+	};
+
+	icssg1_rgmii_pins_default: icssg1_rgmii_pins_default {
+		pinctrl-single,pins = <
 			AM65X_IOPAD(0x0130, PIN_INPUT, 2) /* (AH24) PRG1_PRU1_GPO0.PRG1_RGMII2_RD0 */
 			AM65X_IOPAD(0x0134, PIN_INPUT, 2) /* (AH23) PRG1_PRU1_GPO1.PRG1_RGMII2_RD1 */
 			AM65X_IOPAD(0x0138, PIN_INPUT, 2) /* (AG21) PRG1_PRU1_GPO2.PRG1_RGMII2_RD2 */
@@ -204,6 +263,26 @@
 	};
 
 	pruss0_eth1_phy: ethernet-phy@3 {
+		reg = <3>;
+		ti,rx-internal-delay = <DP83867_RGMIIDCTL_2_00_NS>;
+		ti,fifo-depth = <DP83867_PHYCR_FIFO_DEPTH_4_B_NIB>;
+	};
+};
+
+&icssg1_mdio {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&icssg1_mdio_pins_default>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	pruss1_eth0_phy: ethernet-phy@0 {
+		reg = <0>;
+		ti,rx-internal-delay = <DP83867_RGMIIDCTL_2_00_NS>;
+		ti,fifo-depth = <DP83867_PHYCR_FIFO_DEPTH_4_B_NIB>;
+	};
+
+	pruss1_eth1_phy: ethernet-phy@3 {
 		reg = <3>;
 		ti,rx-internal-delay = <DP83867_RGMIIDCTL_2_00_NS>;
 		ti,fifo-depth = <DP83867_PHYCR_FIFO_DEPTH_4_B_NIB>;
