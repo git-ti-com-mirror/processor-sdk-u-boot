@@ -152,10 +152,6 @@
 	u-boot,dm-spl;
 };
 
-&wkup_i2c0 {
-	u-boot,dm-spl;
-};
-
 &wkup_pmx0 {
 	u-boot,dm-spl;
 	wkup_uart0_pins_default: wkup_uart0_pins_default {
