@@ -169,12 +169,6 @@
 	};
 };
 
-&wkup_vtm0 {
-	vdd-supply-3 = <&vdd_mpu>;
-	vdd-supply-4 = <&vdd_mpu>;
-	u-boot,dm-spl;
-};
-
 &wkup_pmx0 {
 	u-boot,dm-spl;
 	wkup_uart0_pins_default: wkup_uart0_pins_default {
