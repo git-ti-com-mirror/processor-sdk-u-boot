@@ -152,29 +152,6 @@
 	u-boot,dm-spl;
 };
 
-&wkup_i2c0 {
-	u-boot,dm-spl;
-
-	vdd_mpu: tps62363@60 {
-		compatible = "ti,tps62363";
-		reg = <0x60>;
-		regulator-name = "VDD_MPU";
-		regulator-min-microvolt = <500000>;
-		regulator-max-microvolt = <1770000>;
-		regulator-always-on;
-		regulator-boot-on;
-		ti,vsel0-state-high;
-		ti,vsel1-state-high;
-		u-boot,dm-spl;
-	};
-};
-
-&wkup_vtm0 {
-	vdd-supply-3 = <&vdd_mpu>;
-	vdd-supply-4 = <&vdd_mpu>;
-	u-boot,dm-spl;
-};
-
 &wkup_pmx0 {
 	u-boot,dm-spl;
 	wkup_uart0_pins_default: wkup_uart0_pins_default {
