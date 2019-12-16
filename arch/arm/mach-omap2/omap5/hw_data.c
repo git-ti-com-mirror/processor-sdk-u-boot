@@ -398,6 +398,7 @@ void enable_ipu_clocks(void)
 		(*prcm)->cm_l4per_gptimer11_clkctrl,
 		(*prcm)->cm1_abe_timer7_clkctrl,
 		(*prcm)->cm1_abe_timer8_clkctrl,
+		(*prcm)->cm_l4per_gptimer14_clkctrl,
 		0
 	};
 	do_enable_ipu_clocks(clk_domains, clk_modules_hw_auto_essential,
