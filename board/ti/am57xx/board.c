@@ -11,6 +11,7 @@
 #include <palmas.h>
 #include <sata.h>
 #include <usb.h>
+#include <errno.h>
 #include <asm/omap_common.h>
 #include <asm/omap_sec_common.h>
 #include <asm/emif.h>
@@ -35,6 +36,10 @@
 #include "../common/board_detect.h"
 #include "mux_data.h"
 
+#ifdef CONFIG_SUPPORT_EMMC_BOOT
+static int board_bootmode_has_emmc(void);
+#endif
+
 #define board_is_x15()		board_ti_is("BBRDX15_")
 #define board_is_x15_revb1()	(board_ti_is("BBRDX15_") && \
 				 !strncmp("B.10", board_ti_get_rev(), 3))
@@ -47,6 +52,7 @@
 #define board_is_am574x_idk()	board_ti_is("AM574IDK")
 #define board_is_am572x_idk()	board_ti_is("AM572IDK")
 #define board_is_am571x_idk()	board_ti_is("AM571IDK")
+#define board_is_bbai()		board_ti_is("BBONE-AI")
 
 #ifdef CONFIG_DRIVER_TI_CPSW
 #include <cpsw.h>
@@ -96,12 +102,19 @@ static const struct dmm_lisa_map_regs am574x_idk_lisa_regs = {
 	.is_ma_present  = 0x1
 };
 
+static const struct dmm_lisa_map_regs bbai_lisa_regs = {
+	.dmm_lisa_map_3 = 0x80640100,
+	.is_ma_present  = 0x1
+};
+
 void emif_get_dmm_regs(const struct dmm_lisa_map_regs **dmm_lisa_regs)
 {
 	if (board_is_am571x_idk())
 		*dmm_lisa_regs = &am571x_idk_lisa_regs;
 	else if (board_is_am574x_idk())
 		*dmm_lisa_regs = &am574x_idk_lisa_regs;
+	else if (board_is_bbai())
+		*dmm_lisa_regs = &bbai_lisa_regs;
 	else
 		*dmm_lisa_regs = &beagle_x15_lisa_regs;
 }
@@ -505,6 +518,14 @@ void do_board_detect(void)
 				  CONFIG_EEPROM_CHIP_ADDRESS);
 	if (rc)
 		printf("ti_i2c_eeprom_init failed %d\n", rc);
+
+#ifdef CONFIG_SUPPORT_EMMC_BOOT
+	rc = board_bootmode_has_emmc();
+	if (!rc)
+		rc = ti_emmc_boardid_get();
+	if (rc)
+		printf("ti_emmc_boardid_get failed %d\n", rc);
+#endif
 }
 
 #else	/* CONFIG_SPL_BUILD */
@@ -520,6 +541,14 @@ void do_board_detect(void)
 	if (rc)
 		printf("ti_i2c_eeprom_init failed %d\n", rc);
 
+#ifdef CONFIG_SUPPORT_EMMC_BOOT
+	rc = board_bootmode_has_emmc();
+	if (!rc)
+		rc = ti_emmc_boardid_get();
+	if (rc)
+		printf("ti_emmc_boardid_get failed %d\n", rc);
+#endif
+
 	if (board_is_x15())
 		bname = "BeagleBoard X15";
 	else if (board_is_am572x_evm())
@@ -530,6 +559,8 @@ void do_board_detect(void)
 		bname = "AM572x IDK";
 	else if (board_is_am571x_idk())
 		bname = "AM571x IDK";
+	else if (board_is_bbai())
+		bname = "BeagleBone AI";
 
 	if (bname)
 		snprintf(sysinfo.board_string, SYSINFO_BOARD_NAME_MAX_LEN,
@@ -564,6 +595,8 @@ static void setup_board_eeprom_env(void)
 		name = "am572x_idk";
 	} else if (board_is_am571x_idk()) {
 		name = "am571x_idk";
+	} else if (board_is_bbai()) {
+		name = "am5729_beagleboneai";
 	} else {
 		printf("Unidentified board claims %s in eeprom header\n",
 		       board_ti_get_name());
@@ -627,7 +660,7 @@ void am57x_idk_lcd_detect(void)
 	struct udevice *dev;
 
 	/* Only valid for IDKs */
-	if (board_is_x15() || board_is_am572x_evm())
+	if (board_is_x15() || board_is_am572x_evm() || board_is_bbai())
 		return;
 
 	/* Only AM571x IDK has gpio control detect.. so check that */
@@ -737,6 +770,9 @@ int board_late_init(void)
 	/* Just probe the potentially supported cdce913 device */
 	uclass_get_device(UCLASS_CLK, 0, &dev);
 
+	if (board_is_bbai())
+		env_set("console", "ttyS0,115200n8");
+
 #if !defined(CONFIG_SPL_BUILD)
 	board_ti_set_ethaddr(2);
 #endif
@@ -754,6 +790,11 @@ void set_muxconf_regs(void)
 {
 	do_set_mux32((*ctrl)->control_padconf_core_base,
 		     early_padconf, ARRAY_SIZE(early_padconf));
+
+#ifdef CONFIG_SUPPORT_EMMC_BOOT
+	do_set_mux32((*ctrl)->control_padconf_core_base,
+		     emmc_padconf, ARRAY_SIZE(emmc_padconf));
+#endif
 }
 
 #ifdef CONFIG_IODELAY_RECALIBRATION
@@ -779,6 +820,11 @@ void recalibrate_iodelay(void)
 		pconf_sz = ARRAY_SIZE(core_padconf_array_essential_am571x_idk);
 		iod = iodelay_cfg_array_am571x_idk;
 		iod_sz = ARRAY_SIZE(iodelay_cfg_array_am571x_idk);
+	} else if (board_is_bbai()) {
+		pconf = core_padconf_array_essential_bbai;
+		pconf_sz = ARRAY_SIZE(core_padconf_array_essential_bbai);
+		iod = iodelay_cfg_array_bbai;
+		iod_sz = ARRAY_SIZE(iodelay_cfg_array_bbai);
 	} else {
 		/* Common for X15/GPEVM */
 		pconf = core_padconf_array_essential_x15;
@@ -1107,9 +1153,22 @@ int board_fit_config_name_match(const char *name)
 		return 0;
 	} else if (board_is_am571x_idk() && !strcmp(name, "am571x-idk")) {
 		return 0;
+	} else if (board_is_bbai() && !strcmp(name, "am5729-beagleboneai")) {
+		return 0;
 	}
 
 	return -1;
+}
+#endif
+
+#ifdef CONFIG_SUPPORT_EMMC_BOOT
+static int board_bootmode_has_emmc(void)
+{
+	/* Check that boot mode is same as BBAI */
+	if (gd->arch.omap_boot_mode != 2)
+		return -EIO;
+
+	return 0;
 }
 #endif
 
